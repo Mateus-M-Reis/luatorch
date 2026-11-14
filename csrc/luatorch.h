@@ -184,6 +184,7 @@ lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b);
 /* ------------------------------------------------------------------ */
 lt_tensor* lt_softmax(lt_tensor* a, int64_t dim);
 lt_tensor* lt_log_softmax(lt_tensor* a, int64_t dim);
+lt_tensor* lt_fused_log_softmax(lt_tensor* a);
 lt_tensor* lt_linalg_inv(lt_tensor* a);
 lt_tensor* lt_linalg_det(lt_tensor* a);
 lt_tensor* lt_linalg_solve(lt_tensor* a, lt_tensor* b);

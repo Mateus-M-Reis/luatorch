@@ -161,6 +161,28 @@ four independent accumulators. That reassociates the sum: relative error is
 about `1e-5` on 1M elements, which is fine for metrics and losses. Inference and
 training kernels stay precise; only reductions opt into fast-math.
 
+## Fused log-softmax
+
+`Tensor:log_softmax(dim)` and `nn.LogSoftmax` use a fast-math kernel when the
+normalised dimension is the last one and the input is float32/float64:
+
+```lua
+local log_probabilities = logits:log_softmax(2)
+```
+
+The kernel computes max, `sum(exp(x - max))`, and `x - max - log(sum)` in one
+call. A C++ autograd Function saves the output and applies the standard
+backward `dy - exp(y) * sum(dy)` in a second fast-math kernel. Other dimensions,
+dtypes, or empty rows fall back to ATen.
+
+| workload | fused | eager ATen | speedup |
+| --- | ---: | ---: | ---: |
+| 4096×256 forward | 1.21 ms | 2.11 ms | 1.74x |
+| forward + backward | 3.50 ms | 4.78 ms | 1.37x |
+
+The fast-math kernels live in `csrc/fast_ops.cpp`, compiled separately from the
+precise ATen shim.
+
 ## Fused training
 
 `torch.fuse.train(fn)` (also exposed as `torch.fuse_train`) compiles both
@@ -265,6 +287,8 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 | MSE loss + backward fused | 4.36 ms | 11.55 ms | **2.65x** | — |
 | `logsumexp(a*b)` fused | 1.30 ms | 4.62 ms | **3.56x** | — |
 | `logsumexp` train fused | 7.3 ms | 13.0 ms | **1.78x** | — |
+| log_softmax 4096×256 fused | 1.21 ms | 2.11 ms | **1.74x** | — |
+| log_softmax + backward fused | 3.50 ms | 4.78 ms | **1.37x** | — |
 
 Caveats:
 
@@ -283,7 +307,8 @@ Caveats:
 ## Limitations and next steps
 
 - Fused reductions cover `sum`/`mean`/`logsumexp` with first-order backward;
-  softmax, layernorm, convolution, and matmul epilogues are not fused yet.
+  last-dimension `log_softmax` is fused. Softmax, layernorm, convolution, and
+  matmul epilogues are not fused yet.
 - Fused backward is first-order and C-backend only; second-order gradients and
   the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec

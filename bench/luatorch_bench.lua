@@ -192,6 +192,18 @@ best("logsumexp_train_eager", 30, function()
   loss:backward()
 end)
 
+local log_softmax_input = torch.randn(4096, 256)
+best("log_softmax_fused", 50, function()
+  log_softmax_input:log_softmax(2)
+end)
+local log_softmax_train_input = torch.randn(4096, 256, { requires_grad = true })
+local log_softmax_upstream = torch.randn(4096, 256)
+best("log_softmax_train_fused", 30, function()
+  log_softmax_train_input:zero_grad()
+  local output = log_softmax_train_input:log_softmax(2)
+  output:backward(log_softmax_upstream)
+end)
+
 -- Fused autograd training --------------------------------------------------
 local train_x = torch.randn(n, { requires_grad = true })
 local train_y = torch.randn(n, { requires_grad = true })

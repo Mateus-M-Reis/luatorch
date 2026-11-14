@@ -154,6 +154,19 @@ def run_pytorch(compile_chain):
 
     results["logsumexp_train_eager"] = best_of(30, logsumexp_train_eager)
 
+    log_softmax_input = torch.randn(4096, 256)
+    results["log_softmax_eager"] = best_of(
+        50, lambda: torch.log_softmax(log_softmax_input, dim=1))
+    log_softmax_train_input = torch.randn(4096, 256, requires_grad=True)
+    log_softmax_upstream = torch.randn(4096, 256)
+
+    def log_softmax_train_eager():
+        log_softmax_train_input.grad = None
+        output = torch.log_softmax(log_softmax_train_input, dim=1)
+        output.backward(log_softmax_upstream)
+
+    results["log_softmax_train_eager"] = best_of(30, log_softmax_train_eager)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -194,6 +207,8 @@ def print_table(lua, torch_results, compiled):
         ("MSE loss train (fused)", "mse_train_fused", "mse_train_eager", None),
         ("logsumexp (fused)", "logsumexp_fused", "logsumexp_eager", None),
         ("logsumexp train (fused)", "logsumexp_train_fused", "logsumexp_train_eager", None),
+        ("log_softmax (fused)", "log_softmax_fused", "log_softmax_eager", None),
+        ("log_softmax train (fused)", "log_softmax_train_fused", "log_softmax_train_eager", None),
         ("chain train (eager)", "chain_train", "chain_train", None),
         ("chain train (fused)", "chain_train_fused", "chain_train", None),
     ]

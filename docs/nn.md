@@ -159,6 +159,9 @@ end
 
 `reduction` is `"mean"` (default), `"sum"` or `"none"`.
 
+`nn.LogSoftmax` over the last dimension uses the fused log-softmax kernel
+(float32/float64); other dimensions fall back to ATen.
+
 `MSELoss` and `L1Loss` use the fused one-pass reductions when input and target
 have the same shape and float32/float64 dtype (and reduction is not `"none"`).
 Broadcasting or unsupported layouts fall back to the ATen loss. This makes the

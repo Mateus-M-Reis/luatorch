@@ -14,7 +14,7 @@ find_package(OpenMP)
 
 message(STATUS "luatorch: using libtorch at ${Torch_DIR}")
 
-add_library(luatorch SHARED csrc/luatorch.cpp)
+add_library(luatorch SHARED csrc/luatorch.cpp csrc/fast_ops.cpp)
 target_include_directories(luatorch PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/csrc")
 target_link_libraries(luatorch PRIVATE ${TORCH_LIBRARIES})
 
@@ -24,6 +24,8 @@ endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(luatorch PRIVATE -O3 -march=native -fno-math-errno)
+  set_source_files_properties(csrc/fast_ops.cpp PROPERTIES
+    COMPILE_OPTIONS "-ffast-math")
 endif()
 
 set_target_properties(luatorch PROPERTIES
