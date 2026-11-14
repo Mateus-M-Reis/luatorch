@@ -95,10 +95,10 @@ What the table actually says:
 
 ## Status
 
-> **0.6.5 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.6.6 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
-> backward are implemented and covered by **250 tests**. CUDA, higher-order
+> backward are implemented and covered by **253 tests**. CUDA, higher-order
 > autograd, fused softmax, and more `nn` layers are next
 > (see [ROADMAP.md](ROADMAP.md)).
 
@@ -166,7 +166,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 250 tests
+scripts/test.sh               # 253 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -209,7 +209,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, shuffling |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
-| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, compile cache |
+| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused MSE/L1 losses, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
 
 ## How the fusion engine works

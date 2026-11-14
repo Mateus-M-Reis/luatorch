@@ -159,6 +159,12 @@ end
 
 `reduction` is `"mean"` (default), `"sum"` or `"none"`.
 
+`MSELoss` and `L1Loss` use the fused one-pass reductions when input and target
+have the same shape and float32/float64 dtype (and reduction is not `"none"`).
+Broadcasting or unsupported layouts fall back to the ATen loss. This makes the
+common regression losses trainable without materialising the elementwise error
+tensor.
+
 ### Class labels are 1-based
 
 `argmax` returns 1-based indices, and cross entropy expects 1-based labels:

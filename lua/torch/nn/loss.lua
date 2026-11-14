@@ -9,6 +9,32 @@ local function class(name)
   return Module.class(name)
 end
 
+local function can_fuse_elementwise_loss(input, target, reduction)
+  if reduction == "none" then
+    return false
+  end
+  if not input or not target or not input.sizes or not target.sizes then
+    return false
+  end
+  local input_dtype = input:dtype_id()
+  local target_dtype = target:dtype_id()
+  if input_dtype ~= target_dtype or
+    (input_dtype ~= 0 and input_dtype ~= 1) then
+    return false
+  end
+  local input_sizes = input:sizes()
+  local target_sizes = target:sizes()
+  if #input_sizes ~= #target_sizes then
+    return false
+  end
+  for index = 1, #input_sizes do
+    if input_sizes[index] ~= target_sizes[index] then
+      return false
+    end
+  end
+  return input:numel() > 0
+end
+
 local MSELoss = class("MSELoss")
 
 function MSELoss.new(reduction)
@@ -18,6 +44,12 @@ function MSELoss.new(reduction)
 end
 
 function MSELoss:forward(input, target)
+  if can_fuse_elementwise_loss(input, target, self.reduction) then
+    self._fused = self._fused or torch.fuse_reduce(function(a, b)
+      return (a - b) ^ 2
+    end, self.reduction)
+    return self._fused(input, target)
+  end
   return F.mse_loss(input, target, self.reduction)
 end
 
@@ -30,6 +62,12 @@ function L1Loss.new(reduction)
 end
 
 function L1Loss:forward(input, target)
+  if can_fuse_elementwise_loss(input, target, self.reduction) then
+    self._fused = self._fused or torch.fuse_reduce(function(a, b)
+      return (a - b):abs()
+    end, self.reduction)
+    return self._fused(input, target)
+  end
   return F.l1_loss(input, target, self.reduction)
 end
 
