@@ -1,0 +1,25 @@
+# Build products
+build/
+build-*/
+*.so
+*.o
+*.obj
+*.a
+
+# Third-party binaries / sources (downloaded, not vendored)
+third_party/libtorch/
+third_party/libtorch.zip
+third_party/pytorch-src/
+third_party/pytorch/
+
+# Reference checkout of Torch7 (kept locally for API comparison)
+torch7/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Lua
+luacov.*.out

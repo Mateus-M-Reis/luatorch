@@ -1,0 +1,1363 @@
+--
+-- luatorch / tensor.lua
+--
+-- The Tensor class: a thin, idiomatic Lua layer over the at::Tensor handles
+-- produced by libluatorch.so.  Conventions:
+--
+--   * dimensions and indices are 1-based (-1 = last), like Torch7
+--   * mutating methods end in `_` and return self
+--   * non-mutating methods return a new Tensor
+--   * operators (+ - * / ^, unary -) are non-mutating
+--   * reductions over no dimension (dim == nil) return a 0-dim tensor
+--
+local libmod = require("torch.lib")
+local ffi = libmod.ffi
+local lib = libmod.lib
+local dtype_names = libmod.dtype_names
+
+local ALL_DIMS = -1000
+
+local Tensor = {}
+local mt = {}
+
+local dtype_ids = {
+  float32 = 0, float = 0,
+  float64 = 1, double = 1,
+  int64 = 2, long = 2,
+  int32 = 3, int = 3,
+  int16 = 4, short = 4,
+  int8 = 5, char = 5,
+  uint8 = 6, byte = 6,
+  bool = 7, boolean = 7,
+  float16 = 8, half = 8,
+}
+
+local ctypes = {
+  [0] = "float",
+  [1] = "double",
+  [2] = "int64_t",
+  [3] = "int32_t",
+  [4] = "int16_t",
+  [5] = "int8_t",
+  [6] = "uint8_t",
+  [7] = "uint8_t",
+  [8] = "uint16_t",
+}
+
+local type_names = {
+  [0] = "torch.FloatTensor",
+  [1] = "torch.DoubleTensor",
+  [2] = "torch.LongTensor",
+  [3] = "torch.IntTensor",
+  [4] = "torch.ShortTensor",
+  [5] = "torch.CharTensor",
+  [6] = "torch.ByteTensor",
+  [7] = "torch.BoolTensor",
+  [8] = "torch.HalfTensor",
+}
+
+local function last_error()
+  return ffi.string(lib.lt_last_error())
+end
+
+local function check(status)
+  if status ~= 0 then
+    error(last_error(), 3)
+  end
+end
+
+local function wrap(pointer)
+  if pointer == nil then
+    error(last_error(), 3)
+  end
+  return setmetatable({ h = ffi.gc(pointer, lib.lt_free) }, mt)
+end
+
+local function is_tensor(value)
+  return type(value) == "table" and getmetatable(value) == mt
+end
+
+local function resolve_dtype(dtype)
+  if dtype == nil then
+    return nil
+  end
+  if type(dtype) == "number" then
+    if dtype < 0 or dtype > 8 or dtype % 1 ~= 0 then
+      error("invalid dtype id: " .. tostring(dtype), 3)
+    end
+    return dtype
+  end
+  if type(dtype) == "string" then
+    local id = dtype_ids[dtype]
+    if id == nil then
+      error("unknown dtype: '" .. dtype .. "'", 3)
+    end
+    return id
+  end
+  error("dtype must be a dtype id or a string", 3)
+end
+
+local function shape_to_cdata(shape)
+  local n = #shape
+  if n == 0 then
+    return nil, 0
+  end
+  local array = ffi.new("int64_t[?]", n)
+  for i = 1, n do
+    local value = shape[i]
+    if type(value) ~= "number" or value % 1 ~= 0 then
+      error("tensor shape must contain integers, got " .. tostring(value), 3)
+    end
+    array[i - 1] = value
+  end
+  return array, n
+end
+
+local function is_dtype_integral(dtype)
+  return dtype ~= 0 and dtype ~= 1 and dtype ~= 8
+end
+
+local function is_dtype_floating(dtype)
+  return dtype == 0 or dtype == 1 or dtype == 8
+end
+
+local OPTION_KEYS = { dtype = true, device = true, requires_grad = true }
+
+local function is_options(value)
+  if type(value) ~= "table" then
+    return false
+  end
+  local any = false
+  for key in pairs(value) do
+    if not OPTION_KEYS[key] then
+      return false
+    end
+    any = true
+  end
+  return any
+end
+
+local function parse_shape_opts(...)
+  local args = { ... }
+  local opts = {}
+  if #args > 0 and is_options(args[#args]) then
+    opts = table.remove(args)
+  end
+  local shape
+  if #args == 1 and type(args[1]) == "table" then
+    shape = args[1]
+    if #shape == 0 and next(shape) ~= nil then
+      error("invalid shape table", 3)
+    end
+  else
+    shape = args
+  end
+  if #shape == 0 then
+    error("a tensor shape is required", 3)
+  end
+  local checked = {}
+  for i = 1, #shape do
+    local value = shape[i]
+    if type(value) ~= "number" or value % 1 ~= 0 then
+      error("tensor shape must contain integers, got " .. tostring(value), 3)
+    end
+    checked[i] = value
+  end
+  return checked, opts
+end
+
+local function apply_requires_grad(tensor, opts)
+  if opts and opts.requires_grad then
+    tensor:requires_grad_(true)
+  end
+  return tensor
+end
+
+local function check_device(opts)
+  if opts and opts.device and opts.device ~= "cpu" then
+    error("only the CPU device is supported by this build (requested '" ..
+      tostring(opts.device) .. "')", 3)
+  end
+end
+
+local function create(kind, shape, opts, value)
+  opts = opts or {}
+  check_device(opts)
+  local dtype = resolve_dtype(opts.dtype) or 0
+  local array, ndim = shape_to_cdata(shape)
+  local pointer
+  if kind == "zeros" then
+    pointer = lib.lt_zeros(ndim, array, dtype)
+  elseif kind == "ones" then
+    pointer = lib.lt_ones(ndim, array, dtype)
+  elseif kind == "empty" then
+    pointer = lib.lt_empty(ndim, array, dtype)
+  elseif kind == "rand" then
+    pointer = lib.lt_rand(ndim, array, dtype)
+  elseif kind == "randn" then
+    pointer = lib.lt_randn(ndim, array, dtype)
+  elseif kind == "full" then
+    pointer = lib.lt_full(ndim, array, value, dtype)
+  else
+    error("unknown tensor constructor: " .. tostring(kind), 3)
+  end
+  return apply_requires_grad(wrap(pointer), opts)
+end
+
+-- ---------------------------------------------------------------------------
+-- construction from Lua values
+-- ---------------------------------------------------------------------------
+
+local function table_shape(value)
+  if type(value) ~= "table" then
+    return nil
+  end
+  local n = #value
+  if n == 0 then
+    return { 0 }
+  end
+  local first = value[1]
+  if type(first) == "table" then
+    local sub = table_shape(first)
+    for i = 2, n do
+      local other = table_shape(value[i])
+      if not other or #other ~= #sub then
+        error("non-rectangular nested table", 3)
+      end
+      for d = 1, #sub do
+        if other[d] ~= sub[d] then
+          error("non-rectangular nested table", 3)
+        end
+      end
+    end
+    local shape = { n }
+    for i = 1, #sub do
+      shape[#shape + 1] = sub[i]
+    end
+    return shape
+  end
+  for i = 1, n do
+    local v = value[i]
+    if type(v) == "table" then
+      error("non-rectangular nested table", 3)
+    end
+    if type(v) ~= "number" and type(v) ~= "boolean" then
+      error("tensor values must be numbers or booleans, got " .. type(v), 3)
+    end
+  end
+  return { n }
+end
+
+local function flatten_into(value, out)
+  if type(value) == "table" then
+    for i = 1, #value do
+      flatten_into(value[i], out)
+    end
+  else
+    out[#out + 1] = value
+  end
+end
+
+-- Lua has no syntactic distinction between 1 and 1.0, so numeric tables
+-- always become float32 (the PyTorch default floating dtype).  Use
+-- {dtype = torch.int64} / torch.LongTensor for integer tensors.
+local function infer_dtype(values)
+  local saw_boolean, saw_number = false, false
+  for i = 1, #values do
+    if type(values[i]) == "boolean" then
+      saw_boolean = true
+    else
+      saw_number = true
+    end
+  end
+  if saw_boolean and saw_number then
+    error("cannot mix booleans and numbers in one tensor", 3)
+  end
+  return saw_boolean and 7 or 0
+end
+
+local function from_flat(flat, shape, opts)
+  opts = opts or {}
+  check_device(opts)
+  local dtype = resolve_dtype(opts.dtype)
+  if dtype == nil then
+    dtype = infer_dtype(flat)
+  end
+  if dtype == 8 then
+    error("float16 tensors cannot be created from Lua tables; create a float32 " ..
+      "tensor and cast with :to(torch.float16)", 3)
+  end
+  local ctype = ctypes[dtype]
+  local n = #flat
+  local buffer = ffi.new(ctype .. "[?]", math.max(n, 1))
+  for i = 1, n do
+    local value = flat[i]
+    if dtype == 7 then
+      buffer[i - 1] = value and 1 or 0
+    elseif type(value) == "boolean" then
+      buffer[i - 1] = value and 1 or 0
+    else
+      buffer[i - 1] = value
+    end
+  end
+  local array, ndim = shape_to_cdata(shape)
+  local tensor = wrap(lib.lt_from_data(buffer, ndim, array, dtype))
+  return apply_requires_grad(tensor, opts)
+end
+
+local function from_table(value, opts)
+  local shape = table_shape(value)
+  if not shape then
+    error("torch.tensor: expected a table, number or boolean", 3)
+  end
+  local flat = {}
+  flatten_into(value, flat)
+  return from_flat(flat, shape, opts)
+end
+
+local function from_scalar(value, opts)
+  opts = opts or {}
+  local dtype = resolve_dtype(opts.dtype)
+  if dtype == nil then
+    dtype = type(value) == "boolean" and 7 or 0
+  end
+  if dtype == 8 then
+    error("float16 scalars cannot be created directly; cast with :to(torch.float16)", 3)
+  end
+  local ctype = ctypes[dtype]
+  local buffer = ffi.new(ctype .. "[1]")
+  if dtype == 7 or type(value) == "boolean" then
+    buffer[0] = value and 1 or 0
+  else
+    buffer[0] = value
+  end
+  local tensor = wrap(lib.lt_from_data(buffer, 0, nil, dtype))
+  return apply_requires_grad(tensor, opts)
+end
+
+local function tensor_ctor(...)
+  local args = { ... }
+  if #args == 1 and type(args[1]) == "table" then
+    return from_table(args[1], { dtype = 0 })
+  end
+  if #args == 1 and (type(args[1]) == "number" or type(args[1]) == "boolean") then
+    return from_scalar(args[1], { dtype = 0 })
+  end
+  local shape = parse_shape_opts(...)
+  return create("empty", shape, { dtype = 0 })
+end
+
+-- ---------------------------------------------------------------------------
+-- metadata
+-- ---------------------------------------------------------------------------
+
+function Tensor:_cdim(dim)
+  if dim == nil or dim == ALL_DIMS then
+    return ALL_DIMS
+  end
+  if type(dim) ~= "number" then
+    error("dimension must be a number, got " .. type(dim), 3)
+  end
+  if dim == 0 then
+    error("dimensions are 1-based; dimension 0 is invalid", 3)
+  end
+  if dim > 0 then
+    return dim - 1
+  end
+  return dim
+end
+
+function Tensor:dim()
+  return tonumber(lib.lt_dim(self.h))
+end
+
+Tensor.ndimension = Tensor.dim
+
+function Tensor:numel()
+  return tonumber(lib.lt_numel(self.h))
+end
+
+function Tensor:dtype()
+  return dtype_names[lib.lt_dtype(self.h)]
+end
+
+function Tensor:dtype_id()
+  return lib.lt_dtype(self.h)
+end
+
+function Tensor:device()
+  return lib.lt_device(self.h) == 1 and "cuda" or "cpu"
+end
+
+function Tensor:is_cuda()
+  return lib.lt_device(self.h) == 1
+end
+
+function Tensor:is_contiguous()
+  return lib.lt_is_contiguous(self.h) == 1
+end
+
+function Tensor:is_floating_point()
+  return lib.lt_is_floating_point(self.h) == 1
+end
+
+function Tensor:requires_grad()
+  return lib.lt_requires_grad(self.h) == 1
+end
+
+function Tensor:element_size()
+  return tonumber(lib.lt_element_size(self.h))
+end
+
+function Tensor:nbytes()
+  return tonumber(lib.lt_nbytes(self.h))
+end
+
+function Tensor:sizes()
+  local n = self:dim()
+  local array = ffi.new("int64_t[?]", math.max(n, 1))
+  check(lib.lt_sizes(self.h, array))
+  local result = {}
+  for i = 1, n do
+    result[i] = tonumber(array[i - 1])
+  end
+  return result
+end
+
+Tensor.shape = Tensor.sizes
+
+function Tensor:size(dim)
+  if dim == nil then
+    return self:sizes()
+  end
+  local value = lib.lt_size(self.h, self:_cdim(dim))
+  if value < 0 then
+    error(last_error(), 2)
+  end
+  return tonumber(value)
+end
+
+function Tensor:type()
+  return type_names[self:dtype_id()]
+end
+
+-- ---------------------------------------------------------------------------
+-- copies, dtype and autograd plumbing
+-- ---------------------------------------------------------------------------
+
+function Tensor:clone()
+  return wrap(lib.lt_clone(self.h))
+end
+
+function Tensor:contiguous()
+  return wrap(lib.lt_contiguous(self.h))
+end
+
+function Tensor:detach()
+  return wrap(lib.lt_detach(self.h))
+end
+
+function Tensor:copy_(src)
+  if not is_tensor(src) then
+    error("copy_ expects a Tensor", 3)
+  end
+  check(lib.lt_copy_(self.h, src.h))
+  return self
+end
+
+function Tensor:to(dtype)
+  if dtype == nil then
+    return self
+  end
+  if type(dtype) == "string" and (dtype == "cpu" or dtype:match("^cuda")) then
+    if dtype ~= "cpu" then
+      error("CUDA is not available in this build", 3)
+    end
+    return self
+  end
+  return wrap(lib.lt_to_dtype(self.h, resolve_dtype(dtype)))
+end
+
+Tensor.type_as = function(self, other)
+  return self:to(other:dtype())
+end
+
+function Tensor:float()
+  return self:to(0)
+end
+
+function Tensor:double()
+  return self:to(1)
+end
+
+function Tensor:long()
+  return self:to(2)
+end
+
+function Tensor:int()
+  return self:to(3)
+end
+
+function Tensor:half()
+  return self:to(8)
+end
+
+function Tensor:bool()
+  return self:to(7)
+end
+
+function Tensor:requires_grad_(flag)
+  check(lib.lt_set_requires_grad(self.h, (flag == nil or flag) and 1 or 0))
+  return self
+end
+
+function Tensor:has_grad()
+  return lib.lt_has_grad(self.h) == 1
+end
+
+function Tensor:grad()
+  if not self:has_grad() then
+    return nil
+  end
+  return wrap(lib.lt_grad(self.h))
+end
+
+function Tensor:backward(gradient)
+  if gradient ~= nil and not is_tensor(gradient) then
+    error("backward expects an optional gradient Tensor", 3)
+  end
+  check(lib.lt_backward(self.h, gradient and gradient.h or nil))
+  return self
+end
+
+function Tensor:zero_grad()
+  local grad = self:grad()
+  if grad then
+    grad:zero_()
+  end
+  return self
+end
+
+-- ---------------------------------------------------------------------------
+-- element access
+-- ---------------------------------------------------------------------------
+
+local function to_native_index(value, what)
+  if type(value) ~= "number" or value % 1 ~= 0 then
+    error(what .. ": index must be an integer", 4)
+  end
+  if value == 0 then
+    error(what .. ": index 0 is invalid (indices are 1-based)", 4)
+  end
+  return value > 0 and value - 1 or value
+end
+
+local function index_cdata(self, indices)
+  local n = self:dim()
+  if #indices ~= n then
+    error(string.format("expected %d indices, got %d", n, #indices), 4)
+  end
+  local array = ffi.new("int64_t[?]", math.max(n, 1))
+  for i = 1, n do
+    array[i - 1] = to_native_index(indices[i], "get/set")
+  end
+  return array
+end
+
+function Tensor:get(...)
+  local indices = { ... }
+  local n = self:dim()
+  local array = index_cdata(self, indices)
+  local dtype = self:dtype_id()
+  if dtype == 7 then
+    local out = ffi.new("int[1]")
+    check(lib.lt_item_bool(self.h, n, array, out))
+    return out[0] ~= 0
+  elseif is_dtype_integral(dtype) then
+    local out = ffi.new("int64_t[1]")
+    check(lib.lt_item_i64(self.h, n, array, out))
+    return tonumber(out[0])
+  else
+    local out = ffi.new("double[1]")
+    check(lib.lt_item_f64(self.h, n, array, out))
+    return out[0]
+  end
+end
+
+function Tensor:set(...)
+  local args = { ... }
+  if #args < 1 then
+    error("set expects indices followed by a value", 3)
+  end
+  local value = table.remove(args)
+  local n = self:dim()
+  local array = index_cdata(self, args)
+  local dtype = self:dtype_id()
+  if dtype == 7 then
+    check(lib.lt_set_item_f64(self.h, n, array, value and 1 or 0))
+  elseif is_dtype_integral(dtype) then
+    if type(value) ~= "number" then
+      error("integer tensors require numeric values", 3)
+    end
+    check(lib.lt_set_item_i64(self.h, n, array, math.floor(value)))
+  else
+    check(lib.lt_set_item_f64(self.h, n, array, value))
+  end
+  return self
+end
+
+function Tensor:item()
+  if self:numel() ~= 1 then
+    error("item() requires a tensor with exactly one element", 3)
+  end
+  if self:dim() == 0 then
+    return self:get()
+  end
+  local flat = self:flatten(1, self:dim())
+  return flat:get(1)
+end
+
+function Tensor:select(dim, index)
+  return wrap(lib.lt_select(self.h, self:_cdim(dim), to_native_index(index, "select")))
+end
+
+function Tensor:narrow(dim, start, length)
+  local d = self:_cdim(dim)
+  return wrap(lib.lt_narrow(self.h, d, to_native_index(start, "narrow"), length))
+end
+
+function Tensor:slice(dim, start, stop, step)
+  local d = self:_cdim(dim)
+  local n = self:size(dim)
+  step = step or 1
+  if step < 0 then
+    error("slice: negative step is not supported; use flip()", 3)
+  end
+  local s = start or 1
+  local e = stop or n
+  if s < 0 then s = n + s + 1 end
+  if e < 0 then e = n + e + 1 end
+  s = math.max(1, math.min(n, s))
+  e = math.min(n, e)
+  if e < s then
+    return wrap(lib.lt_narrow(self.h, d, math.min(s - 1, n), 0))
+  end
+  return wrap(lib.lt_slice(self.h, d, s - 1, e, step))
+end
+
+function Tensor:flip(dim)
+  return wrap(lib.lt_flip(self.h, self:_cdim(dim)))
+end
+
+function Tensor:masked_fill(mask, value)
+  if not is_tensor(mask) then
+    error("masked_fill expects a boolean mask Tensor", 3)
+  end
+  return wrap(lib.lt_masked_fill(self.h, mask.h, value))
+end
+
+function Tensor:masked_select(mask)
+  if not is_tensor(mask) then
+    error("masked_select expects a boolean mask Tensor", 3)
+  end
+  return wrap(lib.lt_masked_select(self.h, mask.h))
+end
+
+-- `indices` are 1-based, like every other Lua-facing index in this module.
+function Tensor:index_select(dim, indices)
+  if not is_tensor(indices) then
+    error("index_select expects an integer Tensor of indices", 3)
+  end
+  local zero_based = indices:to(2):sub(1)
+  return wrap(lib.lt_index_select(self.h, self:_cdim(dim), zero_based.h))
+end
+
+-- ---------------------------------------------------------------------------
+-- elementwise operators
+-- ---------------------------------------------------------------------------
+
+local function binary_method(name, tensor_fn, scalar_fn, inplace)
+  local method = name .. (inplace and "_" or "")
+  Tensor[method] = function(self, other)
+    local pointer
+    if is_tensor(other) then
+      pointer = tensor_fn(self.h, other.h, inplace and 1 or 0)
+    elseif type(other) == "number" and scalar_fn ~= nil then
+      pointer = scalar_fn(self.h, other, inplace and 1 or 0)
+    else
+      error(method .. " expects a Tensor or a number", 3)
+    end
+    if inplace then
+      if pointer == nil then
+        error(last_error(), 3)
+      end
+      return self
+    end
+    return wrap(pointer)
+  end
+end
+
+binary_method("add", lib.lt_add, lib.lt_add_scalar, false)
+binary_method("add", lib.lt_add, lib.lt_add_scalar, true)
+binary_method("sub", lib.lt_sub, lib.lt_sub_scalar, false)
+binary_method("sub", lib.lt_sub, lib.lt_sub_scalar, true)
+binary_method("mul", lib.lt_mul, lib.lt_mul_scalar, false)
+binary_method("mul", lib.lt_mul, lib.lt_mul_scalar, true)
+binary_method("div", lib.lt_div, lib.lt_div_scalar, false)
+binary_method("div", lib.lt_div, lib.lt_div_scalar, true)
+binary_method("pow", lib.lt_pow, lib.lt_pow_scalar, false)
+binary_method("pow", lib.lt_pow, lib.lt_pow_scalar, true)
+binary_method("remainder", lib.lt_remainder, lib.lt_remainder_scalar, false)
+binary_method("remainder", lib.lt_remainder, lib.lt_remainder_scalar, true)
+binary_method("maximum", lib.lt_maximum, nil, false)
+binary_method("minimum", lib.lt_minimum, nil, false)
+
+-- Torch7 naming compatibility: cmul/cdiv are elementwise multiply/divide.
+Tensor.cmul = Tensor.mul
+Tensor.cmul_ = Tensor.mul_
+Tensor.cdiv = Tensor.div
+Tensor.cdiv_ = Tensor.div_
+
+local function comparison_method(name, tensor_fn, scalar_fn)
+  Tensor[name] = function(self, other)
+    if is_tensor(other) then
+      return wrap(tensor_fn(self.h, other.h))
+    elseif type(other) == "number" then
+      return wrap(scalar_fn(self.h, other))
+    end
+    error(name .. " expects a Tensor or a number", 3)
+  end
+end
+
+comparison_method("eq", lib.lt_eq, lib.lt_eq_scalar)
+comparison_method("ne", lib.lt_ne, lib.lt_ne_scalar)
+comparison_method("lt", lib.lt_lt, lib.lt_lt_scalar)
+comparison_method("le", lib.lt_le, lib.lt_le_scalar)
+comparison_method("gt", lib.lt_gt, lib.lt_gt_scalar)
+comparison_method("ge", lib.lt_ge, lib.lt_ge_scalar)
+
+function Tensor:logical_and(other)
+  return wrap(lib.lt_logical_and(self.h, other.h))
+end
+
+function Tensor:logical_or(other)
+  return wrap(lib.lt_logical_or(self.h, other.h))
+end
+
+function Tensor:logical_not()
+  return wrap(lib.lt_logical_not(self.h))
+end
+
+local unary_fns = {
+  neg = lib.lt_neg, abs = lib.lt_abs, exp = lib.lt_exp, log = lib.lt_log,
+  log1p = lib.lt_log1p, sqrt = lib.lt_sqrt, rsqrt = lib.lt_rsqrt,
+  sin = lib.lt_sin, cos = lib.lt_cos, tan = lib.lt_tan, asin = lib.lt_asin,
+  acos = lib.lt_acos, atan = lib.lt_atan, sinh = lib.lt_sinh,
+  cosh = lib.lt_cosh, tanh = lib.lt_tanh, sigmoid = lib.lt_sigmoid,
+  relu = lib.lt_relu, floor = lib.lt_floor, ceil = lib.lt_ceil,
+  round = lib.lt_round, trunc = lib.lt_trunc, sign = lib.lt_sign,
+  square = lib.lt_square, reciprocal = lib.lt_reciprocal,
+}
+
+for name, fn in pairs(unary_fns) do
+  Tensor[name] = function(self)
+    return wrap(fn(self.h, 0))
+  end
+  Tensor[name .. "_"] = function(self)
+    local pointer = fn(self.h, 1)
+    if pointer == nil then
+      error(last_error(), 3)
+    end
+    return self
+  end
+end
+
+function Tensor:clamp(minimum, maximum)
+  if minimum == nil or maximum == nil then
+    error("clamp expects a minimum and a maximum", 3)
+  end
+  return wrap(lib.lt_clamp(self.h, minimum, maximum, 0))
+end
+
+function Tensor:clamp_(minimum, maximum)
+  if minimum == nil or maximum == nil then
+    error("clamp_ expects a minimum and a maximum", 3)
+  end
+  if lib.lt_clamp(self.h, minimum, maximum, 1) == nil then
+    error(last_error(), 3)
+  end
+  return self
+end
+
+function Tensor:fill_(value)
+  if lib.lt_fill(self.h, value, 1) == nil then
+    error(last_error(), 3)
+  end
+  return self
+end
+
+function Tensor:zero_()
+  return self:fill_(0)
+end
+
+-- ---------------------------------------------------------------------------
+-- linear algebra
+-- ---------------------------------------------------------------------------
+
+function Tensor:matmul(other)
+  return wrap(lib.lt_matmul(self.h, other.h))
+end
+
+function Tensor:mm(other)
+  return wrap(lib.lt_mm(self.h, other.h))
+end
+
+function Tensor:bmm(other)
+  return wrap(lib.lt_bmm(self.h, other.h))
+end
+
+function Tensor:dot(other)
+  return wrap(lib.lt_dot(self.h, other.h))
+end
+
+-- ---------------------------------------------------------------------------
+-- shape manipulation
+-- ---------------------------------------------------------------------------
+
+local function shape_args(...)
+  local args = { ... }
+  if #args == 1 and type(args[1]) == "table" then
+    args = args[1]
+  end
+  return args
+end
+
+function Tensor:reshape(...)
+  local shape = shape_args(...)
+  local array, ndim = shape_to_cdata(shape)
+  return wrap(lib.lt_reshape(self.h, ndim, array))
+end
+
+function Tensor:view(...)
+  local shape = shape_args(...)
+  local array, ndim = shape_to_cdata(shape)
+  return wrap(lib.lt_view(self.h, ndim, array))
+end
+
+function Tensor:transpose(dim0, dim1)
+  return wrap(lib.lt_transpose(self.h, self:_cdim(dim0), self:_cdim(dim1)))
+end
+
+function Tensor:t()
+  return wrap(lib.lt_t(self.h))
+end
+
+function Tensor:permute(...)
+  local dims = shape_args(...)
+  local n = #dims
+  if n ~= self:dim() then
+    error(string.format("permute expects %d dimensions, got %d", self:dim(), n), 3)
+  end
+  local array = ffi.new("int64_t[?]", n)
+  for i = 1, n do
+    array[i - 1] = self:_cdim(dims[i])
+  end
+  return wrap(lib.lt_permute(self.h, n, array))
+end
+
+function Tensor:squeeze(dim)
+  if dim == nil then
+    return wrap(lib.lt_squeeze_all(self.h))
+  end
+  return wrap(lib.lt_squeeze(self.h, self:_cdim(dim)))
+end
+
+function Tensor:unsqueeze(dim)
+  return wrap(lib.lt_unsqueeze(self.h, self:_cdim(dim)))
+end
+
+function Tensor:flatten(start_dim, end_dim)
+  local s = start_dim or 1
+  local e = end_dim or self:dim()
+  return wrap(lib.lt_flatten(self.h, self:_cdim(s), self:_cdim(e)))
+end
+
+function Tensor:expand(...)
+  local shape = shape_args(...)
+  local array, ndim = shape_to_cdata(shape)
+  return wrap(lib.lt_expand(self.h, ndim, array))
+end
+
+-- ---------------------------------------------------------------------------
+-- reductions
+-- ---------------------------------------------------------------------------
+
+local function reduction(self, fn, dim, keepdim)
+  return wrap(fn(self.h, self:_cdim(dim), keepdim and 1 or 0))
+end
+
+function Tensor:sum(dim, keepdim)
+  return reduction(self, lib.lt_sum, dim, keepdim)
+end
+
+function Tensor:mean(dim, keepdim)
+  return reduction(self, lib.lt_mean, dim, keepdim)
+end
+
+function Tensor:prod(dim, keepdim)
+  return reduction(self, lib.lt_prod, dim, keepdim)
+end
+
+function Tensor:max(dim, keepdim)
+  local values = reduction(self, lib.lt_max, dim, keepdim)
+  if dim == nil then
+    return values
+  end
+  return values, reduction(self, lib.lt_argmax, dim, keepdim):add(1)
+end
+
+function Tensor:min(dim, keepdim)
+  local values = reduction(self, lib.lt_min, dim, keepdim)
+  if dim == nil then
+    return values
+  end
+  return values, reduction(self, lib.lt_argmin, dim, keepdim):add(1)
+end
+
+-- ATen returns 0-based indices; Lua users expect 1-based ones, so shift.
+function Tensor:argmax(dim, keepdim)
+  return reduction(self, lib.lt_argmax, dim, keepdim):add(1)
+end
+
+function Tensor:argmin(dim, keepdim)
+  return reduction(self, lib.lt_argmin, dim, keepdim):add(1)
+end
+
+function Tensor:var(dim, unbiased, keepdim)
+  if unbiased == nil then unbiased = true end
+  return wrap(lib.lt_var(self.h, self:_cdim(dim), keepdim and 1 or 0, unbiased and 1 or 0))
+end
+
+function Tensor:std(dim, unbiased, keepdim)
+  if unbiased == nil then unbiased = true end
+  return wrap(lib.lt_std(self.h, self:_cdim(dim), keepdim and 1 or 0, unbiased and 1 or 0))
+end
+
+function Tensor:norm(p, dim, keepdim)
+  if p == nil then p = 2 end
+  if type(p) ~= "number" then
+    error("norm: p must be a number", 3)
+  end
+  return wrap(lib.lt_norm(self.h, p, self:_cdim(dim), keepdim and 1 or 0))
+end
+
+function Tensor:cumsum(dim)
+  return wrap(lib.lt_cumsum(self.h, self:_cdim(dim or 1)))
+end
+
+function Tensor:cumprod(dim)
+  return wrap(lib.lt_cumprod(self.h, self:_cdim(dim or 1)))
+end
+
+function Tensor:all(dim, keepdim)
+  return reduction(self, lib.lt_all, dim, keepdim)
+end
+
+function Tensor:any(dim, keepdim)
+  return reduction(self, lib.lt_any, dim, keepdim)
+end
+
+-- ---------------------------------------------------------------------------
+-- comparisons / helpers
+-- ---------------------------------------------------------------------------
+
+function Tensor:equal(other)
+  if not is_tensor(other) then
+    return false
+  end
+  local a, b = self:sizes(), other:sizes()
+  if #a ~= #b then
+    return false
+  end
+  for i = 1, #a do
+    if a[i] ~= b[i] then
+      return false
+    end
+  end
+  return self:eq(other):all():item() ~= false
+end
+
+function Tensor:allclose(other, rtol, atol)
+  rtol = rtol or 1e-5
+  atol = atol or 1e-8
+  local difference = self:sub(other):abs()
+  local tolerance = other:abs():mul(rtol):add(atol)
+  return difference:le(tolerance):all():item() ~= false
+end
+
+-- ---------------------------------------------------------------------------
+-- conversion to Lua values
+-- ---------------------------------------------------------------------------
+
+local function half_to_float(bits)
+  local sign = (bits >= 32768) and -1 or 1
+  local exponent = math.floor(bits / 1024) % 32
+  local mantissa = bits % 1024
+  if exponent == 0 then
+    if mantissa == 0 then
+      return sign * 0.0
+    end
+    return sign * mantissa * 2 ^ -24
+  elseif exponent == 31 then
+    if mantissa == 0 then
+      return sign * math.huge
+    end
+    return 0 / 0
+  end
+  return sign * (1 + mantissa / 1024) * 2 ^ (exponent - 15)
+end
+
+local function make_reader(dtype, pointer)
+  if dtype == 0 then
+    local p = ffi.cast("float*", pointer)
+    return function(i) return p[i] end
+  elseif dtype == 1 then
+    local p = ffi.cast("double*", pointer)
+    return function(i) return p[i] end
+  elseif dtype == 2 then
+    local p = ffi.cast("int64_t*", pointer)
+    return function(i) return tonumber(p[i]) end
+  elseif dtype == 3 then
+    local p = ffi.cast("int32_t*", pointer)
+    return function(i) return p[i] end
+  elseif dtype == 4 then
+    local p = ffi.cast("int16_t*", pointer)
+    return function(i) return p[i] end
+  elseif dtype == 5 then
+    local p = ffi.cast("int8_t*", pointer)
+    return function(i) return p[i] end
+  elseif dtype == 6 then
+    local p = ffi.cast("uint8_t*", pointer)
+    return function(i) return p[i] end
+  elseif dtype == 7 then
+    local p = ffi.cast("uint8_t*", pointer)
+    return function(i) return p[i] ~= 0 end
+  elseif dtype == 8 then
+    local p = ffi.cast("uint16_t*", pointer)
+    return function(i) return half_to_float(p[i]) end
+  end
+  error("unsupported dtype id " .. tostring(dtype), 3)
+end
+
+function Tensor:totable()
+  local contiguous = self:contiguous()
+  local count = contiguous:numel()
+  local pointer = lib.lt_data_ptr(contiguous.h)
+  if pointer == nil then
+    error(last_error(), 3)
+  end
+  local reader = make_reader(contiguous:dtype_id(), pointer)
+  local values = {}
+  for i = 1, count do
+    values[i] = reader(i - 1)
+  end
+  local sizes = contiguous:sizes()
+  if #sizes == 0 then
+    return values[1]
+  end
+  local offset = 1
+  local function build(dimension)
+    local size = sizes[dimension]
+    local result = {}
+    if dimension == #sizes then
+      for i = 1, size do
+        result[i] = values[offset]
+        offset = offset + 1
+      end
+    else
+      for i = 1, size do
+        result[i] = build(dimension + 1)
+      end
+    end
+    return result
+  end
+  return build(1)
+end
+
+function Tensor:iter()
+  local contiguous = self:contiguous()
+  local count = contiguous:numel()
+  local pointer = lib.lt_data_ptr(contiguous.h)
+  if pointer == nil then
+    error(last_error(), 3)
+  end
+  local reader = make_reader(contiguous:dtype_id(), pointer)
+  local index = 0
+  local function next_value()
+    if index >= count then
+      return nil
+    end
+    local value = reader(index)
+    index = index + 1
+    return value
+  end
+  -- returning the tensor as the loop state keeps it alive during for-in
+  return next_value, contiguous, nil
+end
+
+-- ---------------------------------------------------------------------------
+-- functional utilities (luafun replaces Moses here)
+-- ---------------------------------------------------------------------------
+
+function Tensor:fun()
+  local fun = require("fun")
+  return fun.iter(self:totable())
+end
+
+function Tensor:map(fn)
+  if type(fn) ~= "function" then
+    error("map expects a function", 3)
+  end
+  local values = {}
+  local index = 0
+  for value in self:iter() do
+    index = index + 1
+    values[index] = fn(value)
+  end
+  return from_flat(values, self:sizes(), { dtype = self:dtype_id() })
+end
+
+function Tensor:filter(predicate)
+  if type(predicate) ~= "function" then
+    error("filter expects a function", 3)
+  end
+  local values = {}
+  for value in self:iter() do
+    if predicate(value) then
+      values[#values + 1] = value
+    end
+  end
+  return from_flat(values, { #values }, { dtype = self:dtype_id() })
+end
+
+function Tensor:reduce(fn, initial)
+  if type(fn) ~= "function" then
+    error("reduce expects a function", 3)
+  end
+  local accumulator = initial
+  local started = initial ~= nil
+  for value in self:iter() do
+    if not started then
+      accumulator = value
+      started = true
+    else
+      accumulator = fn(accumulator, value)
+    end
+  end
+  return accumulator
+end
+
+function Tensor:apply(fn)
+  if type(fn) ~= "function" then
+    error("apply expects a function", 3)
+  end
+  local mapped = self:map(fn)
+  self:copy_(mapped)
+  return self
+end
+
+-- ---------------------------------------------------------------------------
+-- serialization
+-- ---------------------------------------------------------------------------
+
+function Tensor:save(path)
+  if type(path) ~= "string" then
+    error("save expects a file path", 3)
+  end
+  check(lib.lt_save(self.h, path))
+  return self
+end
+
+-- ---------------------------------------------------------------------------
+-- printing
+-- ---------------------------------------------------------------------------
+
+local function format_float(value)
+  if value ~= value then
+    return "nan"
+  end
+  if value == math.huge then
+    return "inf"
+  end
+  if value == -math.huge then
+    return "-inf"
+  end
+  if value == 0 then
+    return "0."
+  end
+  local magnitude = math.abs(value)
+  if magnitude < 1e-4 or magnitude >= 1e4 then
+    return string.format("%.4e", value)
+  end
+  local text = string.format("%.4f", value)
+  text = text:gsub("0+$", "")
+  if text:sub(-1) == "." then
+    return text
+  end
+  return text
+end
+
+local function render(value, level, format_scalar)
+  if type(value) ~= "table" then
+    return format_scalar(value)
+  end
+  if #value == 0 then
+    return "[]"
+  end
+  local leaf = type(value[1]) ~= "table"
+  local parts = {}
+  for i = 1, #value do
+    parts[i] = render(value[i], level + 1, format_scalar)
+  end
+  if leaf then
+    return "[" .. table.concat(parts, ", ") .. "]"
+  end
+  local indent = string.rep(" ", 8 + level * 2)
+  return "[" .. table.concat(parts, ",\n" .. indent) .. "]"
+end
+
+function Tensor:format()
+  local dtype = self:dtype()
+  local suffix = ""
+  if dtype ~= "float32" and dtype ~= "int64" and dtype ~= "bool" then
+    suffix = ", dtype=torch." .. dtype
+  end
+  if self:requires_grad() then
+    suffix = suffix .. ", requires_grad=True"
+  end
+  local count = self:numel()
+  if count == 0 then
+    return "tensor([]" .. suffix .. ")"
+  end
+  if count > 1000 then
+    return string.format("tensor(shape=[%s], dtype=torch.%s, numel=%d)",
+      table.concat(self:sizes(), ", "), dtype, count)
+  end
+  local is_float = is_dtype_floating(self:dtype_id())
+  local function format_scalar(value)
+    if type(value) == "boolean" then
+      return tostring(value)
+    end
+    if is_float then
+      return format_float(value)
+    end
+    return string.format("%d", math.floor(value))
+  end
+  local body = render(self:totable(), 0, format_scalar)
+  return "tensor(" .. body .. suffix .. ")"
+end
+
+function Tensor:print()
+  print(self:format())
+  return self
+end
+
+-- ---------------------------------------------------------------------------
+-- metamethods
+-- ---------------------------------------------------------------------------
+
+mt.__index = function(self, key)
+  if type(key) == "number" then
+    if self:dim() == 0 then
+      error("cannot index a 0-dim tensor; use item()", 2)
+    end
+    return Tensor.select(self, 1, key)
+  end
+  if is_tensor(key) then
+    if key:dtype() == "bool" then
+      return Tensor.masked_select(self, key)
+    end
+    error("only boolean tensors can be used as index keys", 2)
+  end
+  local value = Tensor[key]
+  if value ~= nil then
+    return value
+  end
+  error(string.format("torch.Tensor has no field '%s'", tostring(key)), 2)
+end
+
+mt.__newindex = function(self, key, value)
+  if type(key) ~= "number" then
+    rawset(self, key, value)
+    return
+  end
+  local dims = self:dim()
+  if dims == 0 then
+    error("cannot index a 0-dim tensor; use fill()", 2)
+  end
+  if dims == 1 then
+    if type(value) == "number" or type(value) == "boolean" then
+      self:set(key, value)
+      return
+    end
+    error("1-d assignment expects a number or boolean", 2)
+  end
+  if not is_tensor(value) then
+    error("cannot assign a non-tensor into a slice", 2)
+  end
+  self:select(1, key):copy_(value)
+end
+
+mt.__add = function(a, b)
+  if is_tensor(a) then return a:add(b) end
+  return b:add(a)
+end
+mt.__sub = function(a, b)
+  if is_tensor(a) then return a:sub(b) end
+  return b:neg():add(a)
+end
+mt.__mul = function(a, b)
+  if is_tensor(a) then return a:mul(b) end
+  return b:mul(a)
+end
+mt.__div = function(a, b)
+  if is_tensor(a) then return a:div(b) end
+  return b:reciprocal():mul(a)
+end
+mt.__pow = function(a, b)
+  if is_tensor(a) then return a:pow(b) end
+  if a <= 0 then
+    error("number ^ Tensor requires a positive base", 2)
+  end
+  return b:mul(math.log(a)):exp()
+end
+mt.__unm = function(a) return a:neg() end
+mt.__tostring = function(a) return a:format() end
+mt.__len = function(a)
+  if a:dim() == 0 then
+    return 1
+  end
+  return a:size(1)
+end
+
+-- Tensor(...) is a Torch7-style float32 constructor.
+setmetatable(Tensor, {
+  __call = function(_, ...)
+    return tensor_ctor(...)
+  end,
+})
+
+Tensor._wrap = wrap
+Tensor._from_flat = from_flat
+Tensor._create = create
+Tensor._parse_shape_opts = parse_shape_opts
+Tensor._is_options = is_options
+Tensor.from_table = from_table
+Tensor.from_scalar = from_scalar
+Tensor.is_tensor = is_tensor
+Tensor.resolve_dtype = resolve_dtype
+Tensor.ALL_DIMS = ALL_DIMS
+Tensor.dtype_names = dtype_names
+Tensor._mt = mt
+
+return Tensor

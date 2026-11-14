@@ -1,0 +1,74 @@
+# luatorch roadmap
+
+The project's goal is a Torch7-class Lua tensor stack on top of PyTorch's ATen:
+fast, scriptable, and pleasant for research code. This roadmap is intentionally
+concrete: each milestone should leave `scripts/test.sh` green and documented.
+
+## v0.1 — foundation (current)
+
+- [x] C ABI shim over `at::Tensor` with exception-safe error reporting
+- [x] LuaJIT FFI loader and PyTorch-style `torch` module
+- [x] Dtypes: float16/32/64, int8/16/32/64, uint8, bool
+- [x] Creation, broadcasting math, ~25 unary ops, matmul family
+- [x] Shape ops, slicing, Boolean masking, `index_select`, `cat`/`stack`
+- [x] Reductions with dim/keepdim, 1-based indices
+- [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
+- [x] PyTorch `.pt` serialization
+- [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
+- [x] 120-test suite, benchmarks, API/design docs
+
+## v0.2 — tensor completeness
+
+- [ ] Richer indexing: tensor-of-indices selection, ranges, `gather`/`scatter`,
+  `index_put_`, `take_along_dim`, `nonzero`
+- [ ] `sort`, `topk`, `unique`, `bincount`, `histc`
+- [ ] Linear algebra: `inv`, `det`, `solve`, `svd`, `qr`, `eig`, `cholesky`,
+  `linalg.*` bindings
+- [ ] Random distributions beyond uniform/normal: bernoulli, exponential,
+  multinomial, in-place `normal_`/`uniform_`
+- [ ] `einsum`, `outer`, `mv`, `ger`, `addmm`, `baddbmm`
+- [ ] More reductions: `logsumexp`, `aminmax`, `median`, `quantile`
+- [ ] Thread-count control (`torch.set_num_threads`)
+- [ ] `float16` creation from Lua values and printing parity
+
+## v0.3 — the Torch7 stack
+
+- [ ] `torch.nn`: Linear, Conv2d, BatchNorm, ReLU, Dropout, losses,
+  functional forms, parameter iteration
+- [ ] `torch.optim`: SGD, Momentum, Adam, RMSprop, schedulers
+- [ ] `torch.utils.data`: Dataset/DataLoader with deterministic shuffling
+- [ ] `torch.class`-style module system for user-defined layers
+- [ ] Model serialization (state dicts) and PyTorch state-dict interop
+- [ ] `luatorch` rockspec and system installation
+
+## v0.4 — performance and ergonomics
+
+- [ ] Zero-copy tensor views where safe; avoid redundant `contiguous()` calls
+- [ ] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers
+- [ ] Batched indexing kernels in the shim to cut per-call overhead
+- [ ] Profiling helpers (per-op timing, dispatch counters)
+- [ ] Improved large-tensor printing and pretty tables
+- [ ] `luacheck`/CI matrix across LuaJIT versions and Linux/macOS
+
+## v1.0 — GPU and distribution
+
+- [ ] CUDA build via the CUDA libtorch distribution (`device = "cuda"`,
+  `.cuda()`, `.cpu()`, device-aware constructors)
+- [ ] CPU/GPU parity tests and device transfer benchmarks
+- [ ] Optional MKL/OpenBLAS tuning and thread controls
+- [ ] Stable C ABI versioning and prebuilt binary releases
+- [ ] nn/optim GPU support
+
+## Explicit non-goals
+
+- Running unmodified Torch7 C extensions.
+- Reimplementing `nn`/`optim` in Lua on top of a slow backend; modules should
+  call ATen kernels directly.
+- Windows support before the core is stable (patches welcome).
+
+## How to help
+
+Pick a v0.2 operator, follow the six-step checklist in
+[docs/design.md](docs/design.md#adding-an-operator), and include value, shape,
+dtype, and error-path tests. Benchmarks and compatibility notes are as valuable
+as new ops.
