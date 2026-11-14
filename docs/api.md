@@ -1,4 +1,4 @@
-# luatorch API reference (0.1.0)
+# luatorch API reference (0.2.0)
 
 All examples assume:
 
@@ -321,5 +321,6 @@ torch.set_default_dtype(dtype)
 torch.get_default_dtype()
 torch.dtype_name(dtype)
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
+torch.VERSION             -- luatorch version string ("0.2.0")
 torch.version             -- libtorch version string
 ```

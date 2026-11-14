@@ -12,10 +12,13 @@ well-tested tensor library. `luatorch` reconnects the two:
 - PyTorch semantics for gradients, dtypes, broadcasting, and serialization
 - **luafun** (`fun.lua`) as the functional core — no Moses dependency
 - autograd, dtype casts, Boolean masking, and PyTorch-compatible `.pt` files
+- **`torch.nn`** (Linear, Conv2d, pooling, BatchNorm, Dropout, losses, containers)
+  and **`torch.optim`** (SGD, Adam, RMSprop, Adagrad)
 
-> Status: **0.1.0 alpha**, CPU build. Core tensors, math, autograd, I/O, and
-> the luafun bridge are implemented and covered by **120 tests**. `nn`, `optim`,
-> CUDA, and the long tail of ATen operators are next (see [ROADMAP.md](ROADMAP.md)).
+> Status: **0.2.0 alpha**, CPU build. Core tensors, math, autograd, I/O, the
+> luafun bridge, and the first `nn`/`optim` layer are implemented and covered by
+> **160 tests**. CUDA, data loading, and the long tail of ATen operators are next
+> (see [ROADMAP.md](ROADMAP.md)).
 
 ---
 
@@ -58,6 +61,37 @@ local doubled = torch.randn(4, 4):map(function(x) return 2 * x end)
 local evens   = torch.arange(10):filter(function(x) return x % 2 == 0 end)
 ```
 
+## Train a model
+
+```lua
+local nn = require("torch.nn")
+local optim = require("torch.optim")
+
+local model = nn.Sequential(
+  nn.Linear(2, 32), nn.ReLU(),
+  nn.Linear(32, 3))
+local criterion = nn.CrossEntropyLoss()
+local optimizer = optim.Adam(model:parameters(), {lr = 0.01})
+
+for epoch = 1, 300 do
+  local loss = criterion(model(inputs), labels)
+  optimizer:zero_grad()
+  loss:backward()
+  optimizer:step()
+end
+
+model:eval()
+local predicted = model(inputs):argmax(2)   -- 1-based class labels
+```
+
+See [docs/nn.md](docs/nn.md) for modules, losses, optimizers, and the full
+training recipe. Runnable examples live in `examples/`:
+
+- `linear_regression.lua` — autograd and scalar parameters
+- `mlp_classification.lua` — 3-class MLP with Adam
+- `cnn_classification.lua` — convolution + pooling on synthetic images
+- `luafun_pipeline.lua` — functional pipelines over tables and tensors
+
 ## Build
 
 Requirements: Linux/macOS, CMake ≥ 3.18, Ninja or Make, a C++17 compiler,
@@ -67,7 +101,7 @@ official prebuilt **libtorch** (CPU, C++11 ABI, 2.5.1).
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 120 tests
+scripts/test.sh               # 160 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL with torch preloaded
 ```
@@ -97,8 +131,10 @@ cmake --install build --prefix "$HOME/.local"
 | Shape | `reshape`, `view`, `transpose`, `t`, `permute`, `squeeze`, `unsqueeze`, `flatten`, `expand`, `cat`, `stack`, `slice`, `narrow`, `select`, `flip`, `index_select` |
 | Reductions | `sum`, `mean`, `prod`, `max/min` (+ indices), `argmax/argmin`, `var/std`, `norm`, `cumsum/cumprod`, `all/any`, dims and `keepdim` |
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `zero_grad`, `no_grad`, `set_grad_enabled` |
-| I/O | `torch.save`/`torch.load` using the PyTorch zip archive format |
+| I/O | `torch.save`/`torch.load` using the PyTorch zip archive format; `model:save`/`model:load` for state dictionaries |
 | Functional | `Tensor:iter/map/filter/reduce/apply`, `Tensor:fun()`, and the vendored luafun |
+| Neural nets | `nn.Linear`, `Conv2d`, `MaxPool2d`, `AdaptiveAvgPool2d`, `BatchNorm2d`, `Dropout`, `ReLU`/`LeakyReLU`/`Sigmoid`/`Tanh`, `Softmax`/`LogSoftmax`, `Flatten`, `Sequential`, `ModuleList`, MSE/L1/CrossEntropy/NLL/BCE losses |
+| Optimizers | `SGD` (momentum, nesterov, weight decay), `Adam`, `RMSprop`, `Adagrad` |
 | Print | PyTorch-style `tensor([...])`, dtype and `requires_grad` annotations |
 
 ## Deliberate design choices
@@ -118,11 +154,16 @@ cmake --install build --prefix "$HOME/.local"
 - **Small C ABI.** Lua never touches C++ types directly. Every operation is a
   plain C function returning an opaque pointer; errors travel through a
   thread-local message. This keeps FFI fast and crash-resistant.
+- **1-based class labels.** `argmax` and the classification losses agree on
+  1..C labels, matching Torch7's `ClassNLLCriterion`; ATen sees 0-based targets.
+- **Modules are autograd-friendly Lua objects.** They implement `forward` only;
+  calling `loss:backward()` builds the graph through the tensor operations.
 
 ## Documentation
 
 - [docs/api.md](docs/api.md) — the full Lua API
 - [docs/design.md](docs/design.md) — architecture, memory, and error handling
+- [docs/nn.md](docs/nn.md) — `torch.nn` modules, losses, optimizers, training loops
 - [docs/torch7-compat.md](docs/torch7-compat.md) — Torch7 ⇄ luatorch mapping, Moses → luafun
 - [ROADMAP.md](ROADMAP.md) — where this is going
 
@@ -140,6 +181,10 @@ repeats, `scripts/bench.sh`):
 | small tensor add (16 elements) | ~3 µs per call round-trip |
 | luafun map+reduce over 200k | ~2.0 ms (plain Lua loop ~0.26 ms) |
 | luafun map+filter+reduce vs Moses, 200k | ~1.0 ms vs ~5.0 ms (≈5×) |
+| MLP (784→256→10) forward, batch 128 | ~3.7 ms |
+| MLP forward + backward, batch 128 | ~7.8 ms |
+| MLP forward + backward + Adam step | ~16.4 ms |
+| ConvNet forward, 8×3×32×32 | ~4.2 ms |
 | `torch.load` 100k float32 | ~0.2 ms |
 
 The dispatch overhead is a few microseconds; real workloads are dominated by

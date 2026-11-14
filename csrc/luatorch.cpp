@@ -924,6 +924,107 @@ lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b) {
 }
 
 /* ------------------------------------------------------------------ */
+/* neural-network primitives                                          */
+/* ------------------------------------------------------------------ */
+
+lt_tensor* lt_softmax(lt_tensor* a, int64_t dim) {
+  try {
+    clear_error();
+    int64_t d = resolve_dim(dim, a->t.dim(), "softmax");
+    return wrap(at::softmax(a->t, d));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_log_softmax(lt_tensor* a, int64_t dim) {
+  try {
+    clear_error();
+    int64_t d = resolve_dim(dim, a->t.dim(), "log_softmax");
+    return wrap(at::log_softmax(a->t, d));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_conv2d(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups) {
+  try {
+    clear_error();
+    std::optional<at::Tensor> bias_tensor;
+    if (bias != nullptr) {
+      bias_tensor = bias->t;
+    }
+    return wrap(at::conv2d(
+        input->t, weight->t, bias_tensor,
+        at::IntArrayRef({stride_h, stride_w}),
+        at::IntArrayRef({pad_h, pad_w}),
+        at::IntArrayRef({dilation_h, dilation_w}),
+        groups));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_max_pool2d(
+    lt_tensor* input,
+    int64_t kernel_h, int64_t kernel_w,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int ceil_mode) {
+  try {
+    clear_error();
+    return wrap(at::max_pool2d(
+        input->t,
+        at::IntArrayRef({kernel_h, kernel_w}),
+        at::IntArrayRef({stride_h, stride_w}),
+        at::IntArrayRef({pad_h, pad_w}),
+        at::IntArrayRef({dilation_h, dilation_w}),
+        ceil_mode != 0));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction) {
+  try {
+    clear_error();
+    at::Tensor log_probabilities = at::log_softmax(input->t, 1);
+    return wrap(at::nll_loss(
+        log_probabilities, target->t, std::nullopt, reduction, -100));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_nll_loss(lt_tensor* input, lt_tensor* target, int64_t reduction) {
+  try {
+    clear_error();
+    return wrap(at::nll_loss(input->t, target->t, std::nullopt, reduction, -100));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_binary_cross_entropy_with_logits(
+    lt_tensor* input, lt_tensor* target, int64_t reduction) {
+  try {
+    clear_error();
+    return wrap(at::binary_cross_entropy_with_logits(
+        input->t, target->t, std::nullopt, std::nullopt, reduction));
+  }
+  LT_CATCH_NULL
+}
+
+int lt_uniform_(lt_tensor* t, double low, double high) {
+  try {
+    clear_error();
+    t->t.uniform_(low, high);
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+/* ------------------------------------------------------------------ */
 /* shape manipulation                                                 */
 /* ------------------------------------------------------------------ */
 

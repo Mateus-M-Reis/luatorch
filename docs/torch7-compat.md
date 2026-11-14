@@ -46,6 +46,33 @@ utilities Torch7 code often imported from Moses.
    in core. Those are roadmap items and will live in separate modules.
 6. **CUDA is not built yet.** `device = "cuda"` raises a clear error.
 
+## Neural networks and optimizers
+
+| Torch7 | luatorch |
+| --- | --- |
+| `nn.Linear(in, out)` | same |
+| `nn.Sequential(m1, m2)` | same |
+| `nn.ReLU()` / `nn.Sigmoid()` / `nn.Tanh()` | same |
+| `nn.SpatialConvolution(ci, co, kw, kh)` | `nn.Conv2d(ci, co, {kw, kh})` (NCHW) |
+| `nn.SpatialMaxPooling(k, k)` | `nn.MaxPool2d(k)` |
+| `nn.BatchNormalization(c)` | `nn.BatchNorm2d(c)` |
+| `nn.Dropout(p)` | same |
+| `nn.MSECriterion()` | `nn.MSELoss()` |
+| `nn.ClassNLLCriterion()` | `nn.CrossEntropyLoss()` (takes logits, 1-based labels) |
+| `nn.LogSoftMax()` | `nn.LogSoftmax(dim)` |
+| `model:updateOutput(x)` | `model(x)` or `model:forward(x)` |
+| `model:parameters()` (iterator) | `model:parameters()` (array) |
+| `model:zeroGradParameters()` | `model:zero_grad()` |
+| `optim.sgd(...)` | `optim.SGD(params, {lr = ...})` |
+| `optim.adam(...)` | `optim.Adam(params, {lr = ...})` |
+| `optim.rmsprop(...)` | `optim.RMSprop(...)` |
+| `optim.adagrad(...)` | `optim.Adagrad(...)` |
+| `optim:updateParameters(lr)` | `optimizer:step()` |
+
+Torch7 modules exposed `updateOutput`/`updateGradInput`; luatorch modules only
+implement `forward`, because gradients are recorded by ATen autograd when the
+loss calls `:backward()`. See [nn.md](nn.md).
+
 ## Moses → luafun
 
 Torch7-era code often used [Moses](https://github.com/Yonaba/Moses) for

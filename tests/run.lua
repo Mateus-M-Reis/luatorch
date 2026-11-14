@@ -149,6 +149,8 @@ local files = {
   "test_shape.lua",
   "test_reductions.lua",
   "test_autograd.lua",
+  "test_nn.lua",
+  "test_optim.lua",
   "test_luafun.lua",
   "test_io.lua",
   "test_print.lua",

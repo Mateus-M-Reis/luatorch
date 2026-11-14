@@ -129,6 +129,27 @@ lt_tensor* lt_mm(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_bmm(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b);
 
+/* neural-network primitives */
+lt_tensor* lt_softmax(lt_tensor* a, int64_t dim);
+lt_tensor* lt_log_softmax(lt_tensor* a, int64_t dim);
+lt_tensor* lt_conv2d(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups);
+lt_tensor* lt_max_pool2d(
+    lt_tensor* input,
+    int64_t kernel_h, int64_t kernel_w,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int ceil_mode);
+lt_tensor* lt_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction);
+lt_tensor* lt_nll_loss(lt_tensor* input, lt_tensor* target, int64_t reduction);
+lt_tensor* lt_binary_cross_entropy_with_logits(lt_tensor* input, lt_tensor* target, int64_t reduction);
+int        lt_uniform_(lt_tensor* t, double low, double high);
+
 /* shape */
 lt_tensor* lt_reshape(lt_tensor* a, int64_t ndim, const int64_t* sizes);
 lt_tensor* lt_view(lt_tensor* a, int64_t ndim, const int64_t* sizes);

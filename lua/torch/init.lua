@@ -21,6 +21,7 @@ local fun = require("fun")
 
 local torch = {}
 
+torch.VERSION = "0.2.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -238,9 +239,7 @@ local function typed_constructor(dtype)
     if #args == 1 and type(args[1]) == "table" then
       return Tensor.from_table(args[1], { dtype = dtype })
     end
-    if #args == 1 and (type(args[1]) == "number" or type(args[1]) == "boolean") then
-      return Tensor.from_scalar(args[1], { dtype = dtype })
-    end
+    -- A single number is a length, not a scalar (Torch7 behaviour).
     local shape = Tensor._parse_shape_opts(...)
     return Tensor._create("empty", shape, { dtype = dtype })
   end
@@ -314,6 +313,115 @@ function torch.allclose(a, b, rtol, atol)
   return a:allclose(b, rtol, atol)
 end
 
+-- neural-network primitives -------------------------------------------------
+
+local function as_pair(value, name)
+  if value == nil then
+    return 1, 1
+  end
+  if type(value) == "number" then
+    return value, value
+  end
+  if type(value) == "table" and #value == 2 then
+    return value[1], value[2]
+  end
+  error(name .. " must be a number or a {height, width} table", 3)
+end
+
+local reduction_codes = { none = 0, mean = 1, sum = 2 }
+
+local function reduction_code(value)
+  if value == nil then
+    return 1
+  end
+  if type(value) == "number" then
+    if value >= 0 and value <= 2 then
+      return value
+    end
+    error("reduction must be 0 (none), 1 (mean) or 2 (sum)", 3)
+  end
+  local code = reduction_codes[value]
+  if code == nil then
+    error("unknown reduction '" .. tostring(value) .. "'", 3)
+  end
+  return code
+end
+
+function torch.softmax(input, dim)
+  return input:softmax(dim)
+end
+
+function torch.log_softmax(input, dim)
+  return input:log_softmax(dim)
+end
+
+function torch.conv2d(input, weight, bias, stride, padding, dilation, groups)
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(weight) then
+    error("torch.conv2d expects input and weight tensors", 2)
+  end
+  local stride_h, stride_w = as_pair(stride or 1, "stride")
+  local pad_h, pad_w = as_pair(padding or 0, "padding")
+  local dilation_h, dilation_w = as_pair(dilation or 1, "dilation")
+  local bias_pointer = nil
+  if bias ~= nil and bias ~= false then
+    if not Tensor.is_tensor(bias) then
+      error("torch.conv2d: bias must be a Tensor or nil", 2)
+    end
+    bias_pointer = bias.h
+  end
+  return Tensor._wrap(lib.lt_conv2d(
+    input.h, weight.h, bias_pointer,
+    stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w,
+    groups or 1))
+end
+
+function torch.max_pool2d(input, kernel_size, stride, padding, dilation, ceil_mode)
+  if not Tensor.is_tensor(input) then
+    error("torch.max_pool2d expects a Tensor", 2)
+  end
+  local kernel_h, kernel_w = as_pair(kernel_size, "kernel_size")
+  local stride_h, stride_w = as_pair(stride or kernel_size, "stride")
+  local pad_h, pad_w = as_pair(padding or 0, "padding")
+  local dilation_h, dilation_w = as_pair(dilation or 1, "dilation")
+  return Tensor._wrap(lib.lt_max_pool2d(
+    input.h,
+    kernel_h, kernel_w, stride_h, stride_w,
+    pad_h, pad_w, dilation_h, dilation_w,
+    ceil_mode and 1 or 0))
+end
+
+function torch.cross_entropy(input, target, reduction)
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(target) then
+    error("torch.cross_entropy expects input and target tensors", 2)
+  end
+  -- Class labels are 1-based at the Lua surface; ATen expects 0-based targets.
+  local zero_based = target:to(torch.int64):sub(1)
+  return Tensor._wrap(lib.lt_cross_entropy(input.h, zero_based.h, reduction_code(reduction)))
+end
+
+function torch.nll_loss(input, target, reduction)
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(target) then
+    error("torch.nll_loss expects input and target tensors", 2)
+  end
+  local zero_based = target:to(torch.int64):sub(1)
+  return Tensor._wrap(lib.lt_nll_loss(input.h, zero_based.h, reduction_code(reduction)))
+end
+
+function torch.binary_cross_entropy_with_logits(input, target, reduction)
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(target) then
+    error("torch.binary_cross_entropy_with_logits expects two tensors", 2)
+  end
+  return Tensor._wrap(lib.lt_binary_cross_entropy_with_logits(
+    input.h, target.h, reduction_code(reduction)))
+end
+
+function torch.uniform_(tensor, low, high)
+  if not Tensor.is_tensor(tensor) then
+    error("torch.uniform_ expects a Tensor", 2)
+  end
+  return tensor:uniform_(low, high)
+end
+
 -- utilities ------------------------------------------------------------------
 
 function torch.manual_seed(seed)
@@ -350,5 +458,18 @@ end
 function torch.dtype_name(dtype)
   return Tensor.dtype_names[Tensor.resolve_dtype(dtype)]
 end
+
+-- Lazily attach the higher-level packages.  Lazy loading avoids a require
+-- cycle when the user starts with `require("torch.nn")`.
+setmetatable(torch, {
+  __index = function(self, key)
+    if key == "nn" or key == "optim" then
+      local package = require("torch." .. key)
+      rawset(self, key, package)
+      return package
+    end
+    return nil
+  end,
+})
 
 return torch

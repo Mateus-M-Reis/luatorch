@@ -9,7 +9,8 @@
 4. Make the functional layer luafun-based and Moses-free.
 5. Stay small enough to audit and extend.
 
-Non-goals for 0.1: full operator parity with ATen, `nn`/`optim`, CUDA, Windows.
+Non-goals for 0.2: full operator parity with ATen, CUDA, Windows, a complete
+`nn` zoo.
 
 ## Layers
 
@@ -18,6 +19,8 @@ Non-goals for 0.1: full operator parity with ATen, `nn`/`optim`, CUDA, Windows.
               │
      lua/torch/init.lua        public module: constructors, aliases, no_grad
      lua/torch/tensor.lua      Tensor class: methods, operators, printing, luafun
+     lua/torch/nn/*            modules, losses, containers, functional API
+     lua/torch/optim/*         SGD, Adam, RMSprop, Adagrad
      lua/torch/lib.lua         ffi.cdef declarations + shared library loader
               │
         LuaJIT FFI (C ABI only)
@@ -109,11 +112,53 @@ Printing is implemented in Lua from `totable()` data because formatting needs
 Lua's control over precision, dtype suffixes and indentation. Tensors over 1000
 elements print a compact summary. No printing happens in C++.
 
+## Neural networks and optimizers
+
+`nn` is deliberately thin. Modules are plain Lua tables (`nn.Module.class`) that
+hold parameters and implement `forward`; they call the same Tensor methods
+available to users. There is no second autograd engine: `loss:backward()` flows
+through ATen's graph, and optimizers update parameters inside `torch.no_grad`.
+
+Design points:
+
+- **Parameter registration** sets `requires_grad` only for floating dtypes,
+  matching PyTorch. `self.weight` is a convenience alias for
+  `self._parameters.weight` and is refreshed after `module:to(dtype)` replaces
+  the parameter objects.
+- **Containers** (`Sequential`, `ModuleList`) store children in `_modules`
+  with ordered names, which makes `parameters()`, `named_parameters()` and
+  `state_dict()` recursive and deterministic.
+- **`state_dict` clones** parameters and buffers instead of returning live
+  views. This costs memory but prevents a snapshot from silently changing while
+  training continues.
+- **1-based class labels** are a Lua-surface convention. `argmax` returns
+  1-based indices, and `torch.cross_entropy`/`torch.nll_loss` subtract one
+  before calling ATen. Torch7 users will recognise `ClassNLLCriterion`
+  semantics; PyTorch users see the expected shift.
+- **BatchNorm2d** is implemented with tensor reductions (mean, second moment,
+  variance) rather than a dedicated C op. Running statistics are updated under
+  `no_grad` with the unbiased batch variance, while normalization uses the
+  biased variance. A `clamp(0)` guards against tiny negative variances from
+  float cancellation.
+- **Dropout** builds a Boolean mask with `torch.rand` and scales survivors by
+  `1/(1-p)`; it is identity in `eval()`.
+- **Serialization** (`nn.save`/`model:save`) writes a small text header per
+  tensor followed by contiguous bytes; loading reconstructs detached tensors and
+  uses `load_state_dict`, so the architecture is validated (and dtypes cast) on
+  the way in.
+- **Optimizers** keep per-parameter state in a table keyed by tensor identity.
+  SGD, Adam, RMSprop and Adagrad follow their PyTorch update equations,
+  including Adam bias correction. The update path allocates a few temporaries
+  per parameter; fused C kernels are a later optimisation.
+- **Lazy package loading** (`torch.nn` / `torch.optim` via `__index`) avoids a
+  require cycle when the user starts with `require("torch.nn")`.
+
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. Test files cover construction,
+`tests/run.lua` is a dependency-free harness. The 160 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
-printing, and error paths. Tests assert both values and metadata (shape/dtype),
+printing, error paths, every built-in `nn` module/loss, the four optimizers, and
+an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
 and every error test checks a meaningful part of the message.
 
 ## Benchmarks

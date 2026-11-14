@@ -10,6 +10,8 @@ local root = (arg and arg[0] and arg[0]:match("^(.*)/bench/[^/]+$")) or "."
 package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
 
 local torch = require("torch")
+local nn = require("torch.nn")
+local optim = require("torch.optim")
 local fun = require("fun")
 
 local results = {}
@@ -39,7 +41,7 @@ local function format_row(row)
   return string.format("%-34s %12.3f ms  %s", row.name, milliseconds, per_iteration)
 end
 
-print(string.format("luatorch %s benchmarks (libtorch %s)", "0.1.0", torch.version))
+print(string.format("luatorch %s benchmarks (libtorch %s)", torch.VERSION or "0.2.0", torch.version))
 print(string.rep("-", 78))
 
 torch.manual_seed(42)
@@ -137,6 +139,46 @@ bench("torch.load 100k floats", 10, function()
   torch.load(path)
 end)
 os.remove(path)
+
+-- neural networks -------------------------------------------------------
+local mlp = nn.Sequential(
+  nn.Linear(784, 256), nn.ReLU(), nn.Linear(256, 10))
+local batch = torch.randn(128, 784)
+local labels = torch.LongTensor(128):fill_(1)
+local criterion = nn.CrossEntropyLoss()
+local adam = optim.Adam(mlp:parameters(), { lr = 1e-3 })
+
+bench("MLP forward 128x784", 50, function()
+  local output = mlp(batch)
+end)
+
+bench("MLP forward+backward 128x784", 30, function()
+  local output = mlp(batch)
+  local loss = criterion(output, labels)
+  mlp:zero_grad()
+  loss:backward()
+end)
+
+bench("MLP Adam step 128x784", 30, function()
+  local output = mlp(batch)
+  local loss = criterion(output, labels)
+  adam:zero_grad()
+  loss:backward()
+  adam:step()
+end)
+
+local convnet = nn.Sequential(
+  nn.Conv2d(3, 16, 3, { padding = 1 }),
+  nn.ReLU(),
+  nn.MaxPool2d(2),
+  nn.Conv2d(16, 32, 3, { padding = 1 }),
+  nn.ReLU(),
+  nn.MaxPool2d(2))
+local images = torch.randn(8, 3, 32, 32)
+
+bench("ConvNet forward 8x3x32x32", 20, function()
+  local output = convnet(images)
+end)
 
 print(string.rep("-", 78))
 print(string.format("%-34s %12s", "benchmark", "median"))

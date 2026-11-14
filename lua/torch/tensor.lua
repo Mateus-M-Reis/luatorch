@@ -340,9 +340,8 @@ local function tensor_ctor(...)
   if #args == 1 and type(args[1]) == "table" then
     return from_table(args[1], { dtype = 0 })
   end
-  if #args == 1 and (type(args[1]) == "number" or type(args[1]) == "boolean") then
-    return from_scalar(args[1], { dtype = 0 })
-  end
+  -- Torch7 semantics: torch.Tensor(5) is a 1-D tensor of length 5.
+  -- Use torch.tensor(5) for a 0-dim scalar.
   local shape = parse_shape_opts(...)
   return create("empty", shape, { dtype = 0 })
 end
@@ -800,6 +799,13 @@ function Tensor:zero_()
   return self:fill_(0)
 end
 
+function Tensor:uniform_(low, high)
+  low = low or 0
+  high = high or 1
+  check(lib.lt_uniform_(self.h, low, high))
+  return self
+end
+
 -- ---------------------------------------------------------------------------
 -- linear algebra
 -- ---------------------------------------------------------------------------
@@ -818,6 +824,16 @@ end
 
 function Tensor:dot(other)
   return wrap(lib.lt_dot(self.h, other.h))
+end
+
+function Tensor:softmax(dim)
+  dim = dim or self:dim()
+  return wrap(lib.lt_softmax(self.h, self:_cdim(dim)))
+end
+
+function Tensor:log_softmax(dim)
+  dim = dim or self:dim()
+  return wrap(lib.lt_log_softmax(self.h, self:_cdim(dim)))
 end
 
 -- ---------------------------------------------------------------------------

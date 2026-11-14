@@ -107,6 +107,13 @@ test("Torch7-style constructors", function()
   local doubles = torch.DoubleTensor({ 1.5, 2.5 })
   assert_dtype(doubles, "float64")
   assert_tensor(doubles, { 1.5, 2.5 })
+
+  -- A bare number is a length, as in Torch7; scalars use torch.tensor.
+  local vector = torch.LongTensor(5)
+  assert_shape(vector, { 5 })
+  assert_dtype(vector, "int64")
+  assert_shape(torch.Tensor(5), { 5 })
+  assert_eq(torch.tensor(5):dim(), 0)
 end)
 
 test("dtype conversion", function()
