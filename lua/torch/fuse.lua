@@ -531,9 +531,149 @@ Fused.__tostring = function(self)
   return string.format("Fused(%d kernels)", compiled)
 end
 
+-- Fused forward + backward through the C++ autograd bridge -----------------
+
+local FusedTrain = {}
+FusedTrain.__index = FusedTrain
+
+function FusedTrain.new(function_value, options)
+  if type(function_value) ~= "function" then
+    error("torch.fuse.train expects a function", 2)
+  end
+  options = options or {}
+  return setmetatable({
+    fn = function_value,
+    traces = {},
+    kernels = {},
+    last_error = nil,
+  }, FusedTrain)
+end
+
+function FusedTrain:run(...)
+  local count = select("#", ...)
+  local args = pack(...)
+
+  local function fallback()
+    return self.fn(unpack(args, 1, count))
+  end
+
+  local signature_parts = {}
+  local dtype = nil
+  local shape = nil
+  local tensor_count, scalar_count = 0, 0
+
+  for index = 1, count do
+    local value = args[index]
+    if Tensor.is_tensor(value) then
+      signature_parts[index] = "T"
+      tensor_count = tensor_count + 1
+      local value_dtype = value:dtype_id()
+      if dtype == nil then
+        dtype = value_dtype
+        shape = value:sizes()
+      elseif value_dtype ~= dtype then
+        return fallback()
+      end
+      local sizes = value:sizes()
+      if #sizes ~= #shape then
+        return fallback()
+      end
+      for dimension = 1, #sizes do
+        if sizes[dimension] ~= shape[dimension] then
+          return fallback()
+        end
+      end
+    elseif type(value) == "number" then
+      signature_parts[index] = "S"
+      scalar_count = scalar_count + 1
+    else
+      return fallback()
+    end
+  end
+
+  if shape == nil or tensor_count == 0 or tensor_count > 8 or
+    (dtype ~= 0 and dtype ~= 1) then
+    return fallback()
+  end
+
+  local signature = table.concat(signature_parts)
+  local expression = self.traces[signature]
+  if expression == nil then
+    local traced, error_message = trace(self.fn, args)
+    if traced == nil then
+      self.traces[signature] = false
+      self.last_error = error_message
+      return fallback()
+    end
+    expression = traced
+    self.traces[signature] = expression
+  elseif expression == false then
+    return fallback()
+  end
+
+  local key = signature .. "|" .. dtype
+  local kernel = self.kernels[key]
+  if kernel == nil then
+    local compiled, error_message = fusec.compile_train(
+      expression, signature, dtype)
+    if compiled == nil then
+      self.traces[signature] = false
+      self.last_error = error_message
+      return fallback()
+    end
+    kernel = compiled
+    self.kernels[key] = kernel
+  end
+
+  local input_array = ffi.new("lt_tensor*[?]", tensor_count)
+  local scalars = ffi.new("double[?]", math.max(scalar_count, 1))
+  local tensor_index, scalar_index = 0, 0
+  for index = 1, count do
+    if signature_parts[index] == "T" then
+      input_array[tensor_index] = args[index].h
+      tensor_index = tensor_index + 1
+    else
+      scalars[scalar_index] = args[index]
+      scalar_index = scalar_index + 1
+    end
+  end
+
+  local pointer = lib.lt_fused_apply(
+    input_array, tensor_count,
+    ffi.cast("void*", kernel.forward),
+    ffi.cast("void*", kernel.backward),
+    scalar_count > 0 and scalars or nil,
+    scalar_count)
+  if pointer == nil then
+    self.last_error = ffi.string(lib.lt_last_error())
+    return fallback()
+  end
+  return Tensor._wrap(pointer)
+end
+
+FusedTrain.__call = function(self, ...)
+  return self:run(...)
+end
+
+FusedTrain.__tostring = function(self)
+  local compiled = 0
+  for _ in pairs(self.kernels) do
+    compiled = compiled + 1
+  end
+  return string.format("FusedTrain(%d kernels)", compiled)
+end
+
 local function fuse(function_value, options)
   return Fused.new(function_value, options)
 end
 
+local fuse_module = setmetatable({}, {
+  __call = function(_, function_value, options)
+    return fuse(function_value, options)
+  end,
+})
+fuse_module.train = function(function_value, options)
+  return FusedTrain.new(function_value, options)
+end
 
-return fuse
+return fuse_module

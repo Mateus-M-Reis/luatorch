@@ -306,6 +306,16 @@ int lt_sgd_step(
     double lr, double momentum, double dampening,
     double weight_decay, int nesterov, int first_step);
 
+/* Fused forward/backward through a C++ autograd Function.  Kernel pointers
+ * have the signature:
+ *   void kernel(const void** ptrs, const double* scalars, int64_t n, int threads)
+ * Forward ptrs: [inputs..., output].
+ * Backward ptrs: [inputs..., grad_output, grad_inputs...]. */
+lt_tensor* lt_fused_apply(
+    lt_tensor* const* inputs, int64_t n_inputs,
+    void* forward_kernel, void* backward_kernel,
+    const double* scalars, int64_t n_scalars);
+
 /* grad mode */
 void       lt_set_grad_enabled(int enabled);
 int        lt_is_grad_enabled(void);

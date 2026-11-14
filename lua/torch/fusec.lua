@@ -16,6 +16,7 @@ local bit = require("bit")
 
 ffi.cdef[[
 void luatorch_kernel(const void** ptrs, const double* scalars, int64_t n, int threads);
+void luatorch_backward(const void** ptrs, const double* scalars, int64_t n, int threads);
 ]]
 
 local M = {}
@@ -127,6 +128,52 @@ local function emit(node, context)
         "(" .. first .. " < " .. low .. " ? " .. low ..
         " : (" .. first .. " > " .. high .. " ? " .. high ..
         " : " .. first .. "))")
+    elseif op == "grad_output" then
+      value = new_temporary(context, ctype, "go[i]")
+    elseif op == "relu_mask" then
+      value = new_temporary(context, ctype,
+        "((" .. first .. " > 0) ? 1.0" .. info.suffix .. " : 0.0" .. info.suffix .. ")")
+    elseif op == "abs_sign" then
+      value = new_temporary(context, ctype,
+        "((" .. first .. " > 0) ? 1.0" .. info.suffix ..
+        " : ((" .. first .. " < 0) ? -1.0" .. info.suffix .. " : 0.0" .. info.suffix .. "))")
+    elseif op == "clamp_mask" then
+      local low = emit(args[2], context)
+      local high = emit(args[3], context)
+      value = new_temporary(context, ctype,
+        "(((" .. first .. " >= " .. low .. ") && (" .. first .. " <= " .. high ..
+        ")) ? 1.0" .. info.suffix .. " : 0.0" .. info.suffix .. ")")
+    elseif op == "relu_backward" then
+      local delta = emit(args[2], context)
+      value = new_temporary(context, ctype,
+        "(" .. first .. " > 0 ? " .. delta .. " : 0)")
+    elseif op == "abs_backward" then
+      local delta = emit(args[2], context)
+      value = new_temporary(context, ctype,
+        "(" .. first .. " > 0 ? " .. delta ..
+        " : (" .. first .. " < 0 ? -" .. delta .. " : 0))")
+    elseif op == "clamp_backward" then
+      local low = emit(args[2], context)
+      local high = emit(args[3], context)
+      local delta = emit(args[4], context)
+      value = new_temporary(context, ctype,
+        "((" .. first .. " >= " .. low .. " && " .. first .. " <= " .. high ..
+        ") ? " .. delta .. " : 0)")
+    elseif op == "sigmoid_backward" then
+      local delta = emit(args[2], context)
+      local sigmoid_value = new_temporary(context, ctype,
+        "(1.0" .. info.suffix .. " / (1.0" .. info.suffix .. " + " ..
+        info.exp .. "(-" .. first .. ")))")
+      value = new_temporary(context, ctype,
+        "(" .. sigmoid_value .. " * (1.0" .. info.suffix .. " - " ..
+        sigmoid_value .. ") * " .. delta .. ")")
+    elseif op == "tanh_backward" then
+      local delta = emit(args[2], context)
+      local tanh_value = new_temporary(context, ctype,
+        info.tanh .. "(" .. first .. ")")
+      value = new_temporary(context, ctype,
+        "((1.0" .. info.suffix .. " - " .. tanh_value .. " * " .. tanh_value ..
+        ") * " .. delta .. ")")
     elseif op == "add" or op == "sub" or op == "mul" or op == "div" then
       local second = emit(args[2], context)
       local symbol = ({ add = "+", sub = "-", mul = "*", div = "/" })[op]
@@ -227,6 +274,406 @@ local function generate(expression, signature, dtype)
   return source
 end
 
+-- Symbolic differentiation and backward C code -----------------------------
+
+local function make_derivative(metatable)
+  local function make(op, args)
+    return setmetatable({ op = op, args = args }, metatable)
+  end
+  local function is_number(value)
+    return type(value) == "number"
+  end
+  local function is_zero(value)
+    return is_number(value) and value == 0
+  end
+  local function add(a, b)
+    if is_number(a) and is_number(b) then return a + b end
+    if is_number(a) and a == 0 then return b end
+    if is_number(b) and b == 0 then return a end
+    return make("add", { a, b })
+  end
+  local neg
+  local function sub(a, b)
+    if is_number(a) and is_number(b) then return a - b end
+    if is_number(b) and b == 0 then return a end
+    if is_number(a) and a == 0 then return neg(b) end
+    return make("sub", { a, b })
+  end
+  local function mul(a, b)
+    if is_number(a) and is_number(b) then return a * b end
+    if (is_number(a) and a == 0) or (is_number(b) and b == 0) then return 0 end
+    if is_number(a) and a == 1 then return b end
+    if is_number(b) and b == 1 then return a end
+    return make("mul", { a, b })
+  end
+  local function div(a, b)
+    if is_number(a) and is_number(b) then return a / b end
+    if is_number(a) and a == 0 then return 0 end
+    if is_number(b) and b == 1 then return a end
+    return make("div", { a, b })
+  end
+  neg = function(a)
+    if is_number(a) then return -a end
+    return make("neg", { a })
+  end
+  local function exp_node(a) return make("exp", { a }) end
+  local function log_node(a) return make("log", { a }) end
+  local function sqrt_node(a) return make("sqrt", { a }) end
+  local function pow_node(a, b)
+    if is_number(b) then
+      if b == 0 then return 1 end
+      if b == 1 then return a end
+    end
+    return make("pow", { a, b })
+  end
+
+  local relu_masks = {}
+  local abs_masks = {}
+  local clamp_masks = {}
+
+  local derive -- forward declaration
+
+  derive = function(value, target)
+    if is_number(value) then
+      return 0
+    end
+    if type(value) ~= "table" or getmetatable(value) ~= metatable then
+      error("fuse: cannot differentiate a non-expression value", 0)
+    end
+
+    local op = value.op
+    if op == "tensor_arg" then
+      return value.arg == target and 1 or 0
+    elseif op == "scalar_arg" then
+      return 0
+    end
+
+    local args = value.args
+    local a = args and args[1]
+    local b = args and args[2]
+    local da = a ~= nil and derive(a, target) or 0
+
+    if op == "add" then
+      return add(da, derive(b, target))
+    elseif op == "sub" then
+      return sub(da, derive(b, target))
+    elseif op == "mul" then
+      return add(mul(da, b), mul(a, derive(b, target)))
+    elseif op == "div" then
+      local db = derive(b, target)
+      return div(sub(mul(da, b), mul(a, db)), mul(b, b))
+    elseif op == "neg" then
+      return neg(da)
+    elseif op == "exp" then
+      return mul(exp_node(a), da)
+    elseif op == "log" then
+      return div(da, a)
+    elseif op == "sqrt" then
+      if is_zero(da) then return 0 end
+      return div(da, mul(2, sqrt_node(a)))
+    elseif op == "relu" then
+      if is_zero(da) then return 0 end
+      local mask = relu_masks[value]
+      if mask == nil then
+        mask = make("relu_mask", { a })
+        relu_masks[value] = mask
+      end
+      return mul(mask, da)
+    elseif op == "abs" then
+      if is_zero(da) then return 0 end
+      local mask = abs_masks[value]
+      if mask == nil then
+        mask = make("abs_sign", { a })
+        abs_masks[value] = mask
+      end
+      return mul(mask, da)
+    elseif op == "sigmoid" then
+      if is_zero(da) then return 0 end
+      return make("sigmoid_backward", { a, da })
+    elseif op == "tanh" then
+      if is_zero(da) then return 0 end
+      return make("tanh_backward", { a, da })
+    elseif op == "clamp" then
+      if is_zero(da) then return 0 end
+      local mask = clamp_masks[value]
+      if mask == nil then
+        mask = make("clamp_mask", { a, args[2], args[3] })
+        clamp_masks[value] = mask
+      end
+      return mul(mask, da)
+    elseif op == "pow" then
+      local db = derive(b, target)
+      if is_zero(da) and is_zero(db) then
+        return 0
+      end
+      if is_zero(db) then
+        return mul(mul(b, pow_node(a, sub(b, 1))), da)
+      elseif is_zero(da) then
+        return mul(mul(value, log_node(a)), db)
+      end
+      return mul(value, add(mul(db, log_node(a)), div(mul(b, da), a)))
+    end
+
+    error("fuse: no derivative rule for '" .. tostring(op) .. "'", 0)
+  end
+
+  return derive
+end
+
+local function generate_backward(expression, signature, dtype)
+  local info = type_info[dtype]
+  if info == nil then
+    return nil, "unsupported dtype for fused autograd"
+  end
+  local metatable = getmetatable(expression)
+  local derive = make_derivative(metatable)
+  local grad_output = setmetatable({ op = "grad_output", args = { 1 } }, metatable)
+
+  local tensor_positions = {}
+  for index = 1, #signature do
+    if signature:sub(index, index) == "T" then
+      tensor_positions[#tensor_positions + 1] = index
+    end
+  end
+
+  -- Backward code is rendered inline rather than through the temporary-heavy
+  -- forward emitter.  GCC refuses to vectorise the loop when every load and
+  -- intermediate gets its own C temporary; the inline form produces one
+  -- if-converted mask and vectorises to AVX2.
+  local context = {
+    counter = 0,
+    masks = {},
+    values = {},
+    lines = {},
+  }
+  local function value_temporary(expression)
+    context.counter = context.counter + 1
+    local name = "v" .. context.counter
+    context.lines[#context.lines + 1] = string.format(
+      "    const %s %s = %s;", info.ctype, name, expression)
+    return name
+  end
+  local function mask_temporary(expression)
+    context.counter = context.counter + 1
+    local name = "m" .. context.counter
+    context.lines[#context.lines + 1] = string.format(
+      "    const %s %s = %s;", info.ctype, name, expression)
+    return name
+  end
+
+  local function factor_priority(value)
+    if type(value) == "table" and getmetatable(value) == metatable then
+      local op = value.op
+      if op == "relu_mask" or op == "abs_sign" or op == "clamp_mask" then
+        return 1
+      elseif op == "grad_output" then
+        return 2
+      end
+    elseif type(value) == "number" then
+      return 3
+    end
+    return 4
+  end
+
+  local render
+  render = function(value)
+    if type(value) == "number" then
+      return format_number(value, info)
+    end
+    if type(value) ~= "table" or getmetatable(value) ~= metatable then
+      error("fuse: cannot generate backward code for this expression", 0)
+    end
+    local op = value.op
+    local args = value.args or {}
+    local function arg(index)
+      return render(args[index])
+    end
+
+    if op == "tensor_arg" then
+      return "t" .. value.arg .. "[i]"
+    elseif op == "scalar_arg" then
+      return "s" .. value.arg
+    elseif op == "grad_output" then
+      return "go[i]"
+    elseif op == "add" then
+      return "(" .. arg(1) .. " + " .. arg(2) .. ")"
+    elseif op == "sub" then
+      return "(" .. arg(1) .. " - " .. arg(2) .. ")"
+    elseif op == "mul" then
+      local factors = {}
+      local function collect(item)
+        if type(item) == "table" and getmetatable(item) == metatable and
+          item.op == "mul" then
+          collect(item.args[1])
+          collect(item.args[2])
+        else
+          factors[#factors + 1] = item
+        end
+      end
+      collect(value)
+      if #factors == 1 then
+        return render(factors[1])
+      end
+      table.sort(factors, function(left, right)
+        return factor_priority(left) < factor_priority(right)
+      end)
+      local text = render(factors[1])
+      for index = 2, #factors do
+        text = "(" .. text .. " * " .. render(factors[index]) .. ")"
+      end
+      return text
+    elseif op == "div" then
+      return "(" .. arg(1) .. " / " .. arg(2) .. ")"
+    elseif op == "neg" then
+      return "(-" .. arg(1) .. ")"
+    elseif op == "exp" then
+      return info.exp .. "(" .. arg(1) .. ")"
+    elseif op == "log" then
+      return info.log .. "(" .. arg(1) .. ")"
+    elseif op == "sqrt" then
+      return info.sqrt .. "(" .. arg(1) .. ")"
+    elseif op == "abs" then
+      return info.abs .. "(" .. arg(1) .. ")"
+    elseif op == "relu" then
+      local a = arg(1)
+      return "((" .. a .. " > 0) ? " .. a .. " : 0.0" .. info.suffix .. ")"
+    elseif op == "sigmoid" then
+      local a = arg(1)
+      return "(1.0" .. info.suffix .. " / (1.0" .. info.suffix .. " + " ..
+        info.exp .. "(-" .. a .. ")))"
+    elseif op == "tanh" then
+      return info.tanh .. "(" .. arg(1) .. ")"
+    elseif op == "clamp" then
+      local a, low, high = arg(1), arg(2), arg(3)
+      return "((" .. a .. " < " .. low .. ") ? " .. low ..
+        " : ((" .. a .. " > " .. high .. ") ? " .. high .. " : " .. a .. "))"
+    elseif op == "pow" then
+      return info.pow .. "(" .. arg(1) .. ", " .. arg(2) .. ")"
+    elseif op == "relu_mask" then
+      local cached = context.masks[value]
+      if cached then return cached end
+      local a = context.values[value.args[1]]
+      if a == nil then
+        a = value_temporary(render(value.args[1]))
+        context.values[value.args[1]] = a
+      end
+      local name = mask_temporary(
+        "((" .. a .. " > 0) ? 1.0" .. info.suffix .. " : 0.0" .. info.suffix .. ")")
+      context.masks[value] = name
+      return name
+    elseif op == "abs_sign" then
+      local cached = context.masks[value]
+      if cached then return cached end
+      local a = context.values[value.args[1]]
+      if a == nil then
+        a = value_temporary(render(value.args[1]))
+        context.values[value.args[1]] = a
+      end
+      local name = mask_temporary(
+        "((" .. a .. " > 0) ? 1.0" .. info.suffix ..
+        " : ((" .. a .. " < 0) ? -1.0" .. info.suffix .. " : 0.0" .. info.suffix .. "))")
+      context.masks[value] = name
+      return name
+    elseif op == "clamp_mask" then
+      local cached = context.masks[value]
+      if cached then return cached end
+      local a = context.values[value.args[1]]
+      if a == nil then
+        a = value_temporary(render(value.args[1]))
+        context.values[value.args[1]] = a
+      end
+      local low, high = arg(2), arg(3)
+      local name = mask_temporary(
+        "(((" .. a .. " >= " .. low .. ") && (" .. a .. " <= " .. high ..
+        ")) ? 1.0" .. info.suffix .. " : 0.0" .. info.suffix .. ")")
+      context.masks[value] = name
+      return name
+    elseif op == "relu_backward" then
+      local a, d = arg(1), arg(2)
+      return "((" .. a .. " > 0) ? " .. d .. " : 0.0" .. info.suffix .. ")"
+    elseif op == "abs_backward" then
+      local a, d = arg(1), arg(2)
+      return "((" .. a .. " > 0) ? " .. d ..
+        " : ((" .. a .. " < 0) ? -" .. d .. " : 0.0" .. info.suffix .. "))"
+    elseif op == "clamp_backward" then
+      local a, low, high, d = arg(1), arg(2), arg(3), arg(4)
+      return "(((" .. a .. " >= " .. low .. ") && (" .. a .. " <= " .. high ..
+        ")) ? " .. d .. " : 0.0" .. info.suffix .. ")"
+    elseif op == "sigmoid_backward" then
+      local a, d = arg(1), arg(2)
+      local s = "(1.0" .. info.suffix .. " / (1.0" .. info.suffix .. " + " ..
+        info.exp .. "(-" .. a .. ")))"
+      return "(" .. s .. " * (1.0" .. info.suffix .. " - " .. s .. ") * " .. d .. ")"
+    elseif op == "tanh_backward" then
+      local a, d = arg(1), arg(2)
+      local t = info.tanh .. "(" .. a .. ")"
+      return "((1.0" .. info.suffix .. " - " .. t .. " * " .. t .. ") * " .. d .. ")"
+    end
+    error("fuse: no backward code generator for '" .. tostring(op) .. "'", 0)
+  end
+
+  local gradients = {}
+  local ok, error_message = pcall(function()
+    for ordinal, argument in ipairs(tensor_positions) do
+      local derivative = derive(expression, argument)
+      if type(derivative) == "number" and derivative == 0 then
+        gradients[ordinal] = 0
+      else
+        gradients[ordinal] = setmetatable(
+          { op = "mul", args = { grad_output, derivative } }, metatable)
+      end
+    end
+  end)
+  if not ok then
+    return nil, error_message
+  end
+
+  local prelude = {}
+  local tensor_index = 0
+  local scalar_index = 0
+  for index = 1, #signature do
+    if signature:sub(index, index) == "T" then
+      prelude[#prelude + 1] = string.format(
+        "  const %s* __restrict t%d = (const %s*)ptrs[%d];",
+        info.ctype, index, info.ctype, tensor_index)
+      tensor_index = tensor_index + 1
+    else
+      prelude[#prelude + 1] = string.format(
+        "  const %s s%d = (%s)scalars[%d];",
+        info.ctype, index, info.ctype, scalar_index)
+      scalar_index = scalar_index + 1
+    end
+  end
+  prelude[#prelude + 1] = string.format(
+    "  const %s* __restrict go = (const %s*)ptrs[%d];",
+    info.ctype, info.ctype, tensor_index)
+  for ordinal = 1, #tensor_positions do
+    prelude[#prelude + 1] = string.format(
+      "  %s* __restrict g%d = (%s*)ptrs[%d];",
+      info.ctype, ordinal, info.ctype, tensor_index + ordinal)
+  end
+
+  local writes = {}
+  for ordinal, gradient in ipairs(gradients) do
+    writes[#writes + 1] = string.format("    g%d[i] = %s;", ordinal, render(gradient))
+  end
+
+  local source = table.concat({
+    "void luatorch_backward(const void** ptrs, const double* scalars, int64_t n, int threads) {",
+    table.concat(prelude, "\n"),
+    "#ifdef _OPENMP",
+    "#pragma omp parallel for if(threads > 1 && n > 20000) num_threads(threads)",
+    "#endif",
+    "  for (int64_t i = 0; i < n; ++i) {",
+    table.concat(context.lines, "\n"),
+    table.concat(writes, "\n"),
+    "  }",
+    "}",
+    "",
+  }, "\n")
+  return source
+end
+
 local function hash(text)
   local value = 2166136261
   for index = 1, #text do
@@ -249,14 +696,9 @@ function M.available()
   return M._available
 end
 
-function M.compile(expression, signature, dtype)
+local function compile_source(source)
   if not M.available() then
     return nil, "no C compiler available"
-  end
-
-  local source, error_message = generate(expression, signature, dtype)
-  if source == nil then
-    return nil, error_message
   end
 
   local cache_dir = os.getenv("LUATORCH_CACHE") or ".luatorch-cache"
@@ -291,11 +733,41 @@ function M.compile(expression, signature, dtype)
   if not ok then
     return nil, library
   end
-  -- Keep the library handle alive for the lifetime of the process; otherwise
-  -- LuaJIT may unload the shared object and leave a dangling function pointer.
   M._libraries = M._libraries or {}
   M._libraries[so_path] = library
+  return library
+end
+
+function M.compile(expression, signature, dtype)
+  local source, error_message = generate(expression, signature, dtype)
+  if source == nil then
+    return nil, error_message
+  end
+  local library, compile_error = compile_source(source)
+  if library == nil then
+    return nil, compile_error
+  end
   return library.luatorch_kernel
+end
+
+function M.compile_train(expression, signature, dtype)
+  local forward, forward_error = generate(expression, signature, dtype)
+  if forward == nil then
+    return nil, forward_error
+  end
+  local backward, backward_error = generate_backward(expression, signature, dtype)
+  if backward == nil then
+    return nil, backward_error
+  end
+  local library, compile_error = compile_source(forward .. "\n" .. backward)
+  if library == nil then
+    return nil, compile_error
+  end
+  return {
+    forward = library.luatorch_kernel,
+    backward = library.luatorch_backward,
+    library = library,
+  }
 end
 
 return M

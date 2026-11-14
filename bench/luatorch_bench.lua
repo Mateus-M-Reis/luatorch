@@ -119,6 +119,33 @@ best("mlp_adam_step", 50, function()
 end)
 best("mlp_train_step", 50, mlp_step)
 
+-- Fused autograd training --------------------------------------------------
+local train_x = torch.randn(n, { requires_grad = true })
+local train_y = torch.randn(n, { requires_grad = true })
+local train_z = torch.randn(n, { requires_grad = true })
+local fused_train = torch.fuse_train(function(a, b, c)
+  return (a * b + c):relu()
+end)
+
+local function chain_train_eager()
+  train_x:zero_grad()
+  train_y:zero_grad()
+  train_z:zero_grad()
+  local output = (train_x * train_y + train_z):relu()
+  output:sum():backward()
+end
+
+local function chain_train_fused()
+  train_x:zero_grad()
+  train_y:zero_grad()
+  train_z:zero_grad()
+  local output = fused_train(train_x, train_y, train_z)
+  output:sum():backward()
+end
+
+best("chain_train", 15, chain_train_eager)
+best("chain_train_fused", 15, chain_train_fused)
+
 -- Fusion ------------------------------------------------------------------
 local fused_chain = torch.fuse(function(p, q, r)
   return (p * q + r):relu()

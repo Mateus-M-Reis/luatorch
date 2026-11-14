@@ -183,7 +183,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 233 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 239 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
@@ -220,14 +220,36 @@ Two implementation details matter for speed:
   `lt_free_counted`, which deliberately does not clear the thread-local error
   (otherwise a GC during `ffi.string` can erase an error message being read).
 
+Fused training adds a second ABI:
+
+```c
+void luatorch_backward(const void** ptrs, const double* scalars,
+                       int64_t n, int threads);
+// ptrs = [inputs..., grad_output, grad_inputs...]
+```
+
+`torch.fuse.train` differentiates the expression symbolically and emits this
+kernel. A C++ `torch::autograd::Function` (`lt_fused_apply`) runs the forward
+kernel, saves contiguous inputs and scalar arguments in `AutogradContext`, and
+calls the backward kernel from `backward()`. This makes the fused result a real
+autograd node, so `nn.Linear`, losses, and `loss:backward()` work normally.
+
+The backward code is rendered inline rather than through the forward
+temporary-per-node emitter. A shared mask plus inline expressions vectorises;
+the earlier temporary-heavy form was ~6x slower because GCC saw the conditional
+as control flow. Fused training is first-order and C-backend only; the fixed
+cost of the custom node and gradient allocations makes its speedup (~1.3x) more
+modest than inference fusion (~5x).
+
 Optimizer updates use the same philosophy: Adam/AdamW/SGD are single C loops
 over `data_ptr`, with `__restrict` pointers and `-O3 -march=native
 -fno-math-errno`, avoiding the ~10 temporary tensors the Lua implementation
 would allocate. This makes the optimizer step ~5x faster than PyTorch on the
 MLP benchmark.
 
-Unsupported expressions, shape mismatches and autograd inputs fall back to
-eager execution, so the tracer is never on the correctness path.
+Unsupported expressions and shape mismatches fall back to eager execution, so
+the tracer is never on the correctness path. Inference fusion also falls back
+when inputs require grad; the trainable path handles first-order gradients.
 
 ## Benchmarks
 

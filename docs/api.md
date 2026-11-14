@@ -1,4 +1,4 @@
-# luatorch API reference (0.4.1)
+# luatorch API reference (0.5.0)
 
 All examples assume:
 
@@ -51,6 +51,24 @@ The default C backend requires `gcc`; it caches compiled kernels in
 `.luatorch-cache/` (`LUATORCH_CACHE` overrides). The LuaJIT backend is always
 available. `fused.last_error` / `fused.last_c_error` explain fallbacks. See
 [docs/fusion.md](fusion.md) for internals and benchmarks.
+
+`torch.fuse.train(fn)` (alias `torch.fuse_train`) is the trainable variant. It
+compiles a backward kernel and wires both directions into PyTorch's autograd
+engine:
+
+```lua
+local train_fused = torch.fuse.train(function(a, b, c)
+  return (a * b + c):relu()
+end)
+
+local output = train_fused(a, b, c)
+output:sum():backward()         -- compiled backward kernel
+```
+
+It supports first-order derivatives of the elementwise operations above and
+requires the C backend. Unsupported expressions, missing derivative rules, or
+the absence of `gcc` fall back to eager autograd. `train_fused.last_error`
+explains the fallback.
 
 ## Dtypes
 
@@ -415,6 +433,6 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.4.1")
+torch.VERSION             -- luatorch version string ("0.5.0")
 torch.version             -- libtorch version string
 ```

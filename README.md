@@ -17,12 +17,22 @@ end)
 
 local out = fused(a, b, c)          -- one vectorized kernel, no temporaries
 fused:into(buffer, a, b, c)         -- zero-allocation variant
+
+-- Trainable variant: forward and backward are compiled, then wired into
+-- PyTorch's autograd engine through a C++ custom Function.
+local train_fused = torch.fuse.train(function(a, b, c)
+  return (a * b + c):relu()
+end)
+local y = train_fused(a, b, c)
+y:sum():backward()                  -- compiled backward kernel
 ```
 
 This is not a thin wrapper around PyTorch. The execution layer:
 
 - traces elementwise tensor expressions and compiles them to **one C kernel**
   (or a LuaJIT loop when no C compiler is available),
+- generates **forward and backward** kernels and connects them to PyTorch's
+  autograd engine for first-order training,
 - eliminates intermediate tensors and memory traffic,
 - accounts for C++ tensor memory so LuaJIT's GC does not let results pile up,
 - exposes reusable output buffers (`fused:into`) and in-place ops,
@@ -52,6 +62,7 @@ Ryzen 3 machine. Eager and compiled PyTorch are shown separately because
 | MLP forward+backward | 3.60 ms | 3.62 ms | **1.01x** | — | — |
 | **MLP Adam step** | **0.224 ms** | 1.137 ms | **5.08x** | — | — |
 | **MLP train step** | **3.97 ms** | 5.12 ms | **1.29x** | — | — |
+| chain train step, fused | 11.6 ms | 14.6 ms | **1.26x** | — | — |
 
 What the table actually says:
 
@@ -61,6 +72,10 @@ What the table actually says:
 - **Optimizer updates are a clear win:** fusing Adam's update into one C kernel
   makes the optimizer step **5.1x faster** than PyTorch's optimizer, which lifts
   the whole MLP training step to **1.29x**.
+- **Fused training is a moderate win.** A compiled forward+backward chain runs
+  about 1.2–1.5x faster than eager PyTorch in best-of runs, less than the
+  inference speedup because the custom autograd node and gradient allocations
+  have fixed overhead.
 - **Single additions and GEMM are parity-to-tie.** GEMM uses the same BLAS-class
   kernels; single out-of-place adds are dominated by allocation/free behavior.
 - **Small tensors** are 1.1–1.4x faster thanks to lower dispatch overhead.
@@ -69,10 +84,11 @@ What the table actually says:
 
 ## Status
 
-> **0.4.1 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
-> data loading, sorting/linalg, the fusion JIT, and fused optimizer updates are
-> implemented and covered by **233 tests**. CUDA, fused reductions/backprop,
-> and more `nn` layers are next (see [ROADMAP.md](ROADMAP.md)).
+> **0.5.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> data loading, sorting/linalg, the fusion JIT, fused optimizer updates, and
+> first-order fused backward are implemented and covered by **239 tests**.
+> CUDA, fused reductions, higher-order autograd, and more `nn` layers are next
+> (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -138,7 +154,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 233 tests
+scripts/test.sh               # 239 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -181,7 +197,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Optimizers | SGD/Adam/AdamW fused update kernels, RMSprop, Adagrad, clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, shuffling |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
-| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, compile cache |
+| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
 
 ## How the fusion engine works
@@ -193,8 +209,13 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
    loop if C compilation is unavailable.
 3. Tensor inputs are made contiguous, output is allocated (or supplied via
    `into`), and one kernel reads all inputs and writes the result once.
-4. Any unsupported operation, shape mismatch, or autograd input falls back to
-   eager ATen, so correctness never depends on the tracer.
+4. `torch.fuse.train(fn)` additionally differentiates the expression
+   symbolically, emits a vectorised backward kernel, and runs both through a
+   C++ `torch::autograd::Function`, so `loss:backward()` reaches the compiled
+   kernel.
+5. Any unsupported operation or shape mismatch falls back to eager ATen;
+   inference fusion also falls back when gradients are required. Correctness
+   never depends on the tracer.
 
 See [docs/fusion.md](docs/fusion.md) for the API, supported operations, cache
 and fallback rules.
@@ -225,8 +246,10 @@ and fallback rules.
 ## Honest limitations
 
 - Fusion currently handles **elementwise expressions** only; reductions
-  (`sum`, `mse`), softmax, and backward passes are not fused yet.
-- Fused outputs are inference-only: inputs that require grad fall back to eager.
+  (`sum`, `mse`) and softmax are not fused yet.
+- `torch.fuse.train` supports **first-order** derivatives and requires the C
+  backend; higher-order gradients and the LuaJIT-only fallback use eager
+  autograd.
 - Fusion requires equal shapes (broadcasting falls back).
 - We beat eager PyTorch on chains and small ops; we tie on GEMM and slightly
   lose on single out-of-place ops. Those are architectural facts, not bugs.

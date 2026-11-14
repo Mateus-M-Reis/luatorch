@@ -16,6 +16,13 @@ local out = fused(a, b, c)
 -- avoid allocating a fresh output every call
 local buffer = torch.empty(a:sizes(), {dtype = a:dtype()})
 fused:into(buffer, a, b, c)
+
+-- trainable variant: compiled forward and backward, wired into autograd
+local train_fused = torch.fuse.train(function(a, b, c)
+  return (a * b + c):relu()
+end)
+local y = train_fused(a, b, c)
+y:sum():backward()
 ```
 
 `torch.fuse(fn, options?)` returns a callable object. `options.backend` is
@@ -35,8 +42,11 @@ Tensor inputs must:
 
 - all be float32 or float64,
 - share exactly the same shape,
-- be contiguous (non-contiguous inputs are copied once),
-- not require gradients (the fusion path is inference-only for now).
+- be contiguous (non-contiguous inputs are copied once).
+
+For inference, inputs that require gradients make `torch.fuse` fall back to
+eager. `torch.fuse.train` uses a different path that supports first-order
+autograd.
 
 Scalar arguments are runtime values; they are passed to the compiled kernel on
 every call. Constants written inside the traced function are baked in.
@@ -101,6 +111,66 @@ call made out-of-place `add` ~3.5x slower than PyTorch.
 `into` does not support autograd or non-contiguous outputs; use `fused(...)`
 for those.
 
+## Fused training
+
+`torch.fuse.train(fn)` (also exposed as `torch.fuse_train`) compiles both
+directions of an elementwise expression:
+
+```lua
+local fused = torch.fuse.train(function(a, b, c)
+  return ((a * b + c):sigmoid() + a:abs()):tanh()
+end)
+
+local output = fused(a, b, c)   -- output has a grad_fn
+output:backward(grad_output)    -- runs the compiled backward kernel
+```
+
+How it works:
+
+1. The expression is traced exactly like inference.
+2. It is differentiated symbolically with respect to every tensor argument.
+   Supported rules: `+ - * / ^`, unary `-`, `exp`, `log`, `sqrt`, `abs`,
+   `relu`, `sigmoid`, `tanh`, `clamp`.
+3. Forward and backward are emitted into one C translation unit. The backward
+   ABI is:
+
+   ```c
+   void luatorch_backward(const void** ptrs, const double* scalars,
+                          int64_t n, int threads);
+   // ptrs = [inputs..., grad_output, grad_inputs...]
+   ```
+
+4. A C++ `torch::autograd::Function` calls the forward kernel, saves the
+   contiguous inputs and scalar arguments, and calls the backward kernel from
+   `backward()`. Because it is a real autograd node, it connects to `nn`
+   modules, `Linear`, losses, and the rest of the PyTorch graph.
+
+The backward emitter is separate from the forward emitter and renders
+expressions inline with a shared ReLU/clamp mask. That matters: a
+temporary-per-node backward was ~6x slower because GCC refused to vectorise the
+conditional; the current form runs at memory bandwidth.
+
+Measured on 1M floats, `(a*b+c):relu()` forward + backward:
+
+| path | time |
+| --- | ---: |
+| eager PyTorch | ~14.6 ms |
+| fused training | ~11.6 ms (1.26x, best runs 1.5x) |
+
+The win is smaller than inference fusion because the custom autograd node,
+saved tensors, gradient allocations, and the autograd engine have fixed
+overhead.
+
+Limitations:
+
+- first-order derivatives only; second-order gradients are not implemented;
+- requires the C backend (falls back to eager if no compiler or no derivative
+  rule);
+- at most 8 tensor inputs;
+- all tensor inputs must share dtype and shape;
+- gradients are allocated for every tensor input, even ones that do not require
+  grad (correct, but extra memory).
+
 ## Fallback rules
 
 The eager function is called instead of the fused kernel when:
@@ -139,6 +209,7 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 | `matmul 512` | 7.66 ms | 7.67 ms | 1.00x | — |
 | MLP Adam step | **0.224 ms** | 1.137 ms | **5.08x** | — |
 | MLP train step | **3.97 ms** | 5.12 ms | **1.29x** | — |
+| chain train step, fused | 11.6 ms | 14.6 ms | **1.26x** | — |
 
 Caveats:
 
@@ -147,6 +218,8 @@ Caveats:
 - `torch.compile` also fuses elementwise chains. We are roughly at parity on
   this one kernel (about 1 ms for both); the honest claim is "competitive with
   compiled PyTorch, several times faster than eager on chains".
+- Fused training lands at ~1.3x over eager PyTorch on a 1M-element chain; the
+  compiled kernels are fast, the autograd bridge is the remaining overhead.
 - Adam/AdamW/SGD use fused update kernels: the optimizer step is ~5x faster
   than PyTorch's, which lifts the full MLP training step to ~1.3x.
 - Matrix multiplication uses the same class of BLAS kernels on both sides, so a
@@ -155,8 +228,8 @@ Caveats:
 ## Limitations and next steps
 
 - No fused reductions, softmax, layernorm, convolution, or matmul epilogues yet.
-- No autograd through fused kernels; training falls back to eager. Fusing
-  forward and backward is the next major milestone.
+- Fused backward is first-order and C-backend only; second-order gradients and
+  the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec
   or polynomial approximations would close the remaining gap on unary-heavy
   expressions.

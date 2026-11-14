@@ -109,6 +109,19 @@ def run_pytorch(compile_chain):
     results["mlp_adam_step"] = best_of(50, mlp_optimizer.step)
     results["mlp_train_step"] = best_of(50, mlp_step)
 
+    train_x = torch.randn(1_000_000, requires_grad=True)
+    train_y = torch.randn(1_000_000, requires_grad=True)
+    train_z = torch.randn(1_000_000, requires_grad=True)
+
+    def chain_train():
+        train_x.grad = None
+        train_y.grad = None
+        train_z.grad = None
+        output = (train_x * train_y + train_z).relu()
+        output.sum().backward()
+
+    results["chain_train"] = best_of(15, chain_train)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -144,6 +157,8 @@ def print_table(lua, torch_results, compiled):
         ("MLP forward+backward", "mlp_forward_backward", "mlp_forward_backward", None),
         ("MLP Adam step", "mlp_adam_step", "mlp_adam_step", None),
         ("MLP train step", "mlp_train_step", "mlp_train_step", None),
+        ("chain train (eager)", "chain_train", "chain_train", None),
+        ("chain train (fused)", "chain_train_fused", "chain_train", None),
     ]
 
     header = f"{'workload':34s} {'luatorch':>10s} {'torch eager':>12s} {'speedup':>9s}"

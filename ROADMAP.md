@@ -17,7 +17,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
-- [x] 233-test suite, benchmarks, API/design docs
+- [x] 239-test suite, benchmarks, API/design docs
 - [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
 ## v0.2 — neural networks (done)
@@ -60,25 +60,26 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Thread-count control (`torch.set_num_threads`)
 - [ ] `float16` creation from Lua values and printing parity
 
-## v0.4 — fused execution (current)
+## v0.4 — fused execution (done)
 
 - [x] Trace elementwise functions into an expression tree
 - [x] LuaJIT codegen backend for float32/float64
 - [x] C codegen backend, `gcc -O3 -march=native -fopenmp`, on-disk kernel cache
 - [x] `fused:into` output buffers; scalar arguments as runtime values
 - [x] External-memory-aware GC (64 MB threshold) to fix out-of-place allocation
-- [x] Fallback to eager for unsupported ops, broadcasting, and autograd
+- [x] Fallback to eager for unsupported ops, broadcasting, and inference autograd
 - [x] Head-to-head benchmark harness against PyTorch eager and `torch.compile`
 - [x] 5.4x vs eager and ~1.0x vs `torch.compile` on `(a*b+c):relu()` (1M)
 - [ ] Fused reductions: `sum`, `mean`, `mse`, `logsumexp`
-- [ ] Fused backward/autograd for elementwise expressions
+- [x] First-order fused forward+backward through a C++ autograd Function
+- [ ] Higher-order gradients through fused expressions
 - [ ] Automatic tracing of ordinary operator code (lazy tensors)
 - [ ] Linear/conv epilogue fusion (`x@W + b`, bias+activation)
 - [ ] Vectorised transcendentals (libmvec or polynomial approximations)
 - [x] Fused Adam/AdamW/SGD update kernels (5x optimizer step, 1.3x train step)
 - [ ] Multi-output fusion and in-place fused kernels
 
-## v0.5 — the Torch7 stack
+## v0.5 — the Torch7 stack (current)
 
 - [x] `torch.nn` layers, losses, containers, functional forms, parameter iteration
 - [x] `torch.optim`: SGD, momentum, Adam, RMSprop, Adagrad

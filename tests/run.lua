@@ -150,6 +150,7 @@ local files = {
   "test_reductions.lua",
   "test_tensor_extra.lua",
   "test_fuse.lua",
+  "test_fusetrain.lua",
   "test_linalg.lua",
   "test_random.lua",
   "test_autograd.lua",
