@@ -58,6 +58,50 @@ function MaxPool2d:format()
     self.stride[1], self.stride[2])
 end
 
+local AvgPool2d = Module.class("AvgPool2d")
+
+function AvgPool2d.new(kernel_size, stride, padding, ceil_mode, count_include_pad)
+  if type(stride) == "table" and
+    (stride.stride or stride.padding or stride.ceil_mode ~= nil or
+      stride.count_include_pad ~= nil) then
+    local options = stride
+    stride = options.stride
+    padding = options.padding
+    ceil_mode = options.ceil_mode
+    count_include_pad = options.count_include_pad
+  end
+
+  local kernel_h, kernel_w = pair(kernel_size, nil, "kernel_size")
+  local stride_h, stride_w = pair(stride, nil, "stride")
+  if stride_h == nil then
+    stride_h, stride_w = kernel_h, kernel_w
+  end
+  local pad_h, pad_w = pair(padding, 0, "padding")
+  if count_include_pad == nil then
+    count_include_pad = true
+  end
+
+  local self = setmetatable(Module.new(), AvgPool2d)
+  self.kernel_size = { kernel_h, kernel_w }
+  self.stride = { stride_h, stride_w }
+  self.padding = { pad_h, pad_w }
+  self.ceil_mode = ceil_mode and true or false
+  self.count_include_pad = count_include_pad and true or false
+  return self
+end
+
+function AvgPool2d:forward(input)
+  return torch.avg_pool2d(
+    input, self.kernel_size, self.stride, self.padding,
+    self.ceil_mode, self.count_include_pad)
+end
+
+function AvgPool2d:format()
+  return string.format("AvgPool2d(kernel=%dx%d, stride=%dx%d)",
+    self.kernel_size[1], self.kernel_size[2],
+    self.stride[1], self.stride[2])
+end
+
 -- Global average pooling over the spatial dimensions.
 local AdaptiveAvgPool2d = Module.class("AdaptiveAvgPool2d")
 
@@ -73,5 +117,6 @@ end
 
 return {
   MaxPool2d = MaxPool2d,
+  AvgPool2d = AvgPool2d,
   AdaptiveAvgPool2d = AdaptiveAvgPool2d,
 }

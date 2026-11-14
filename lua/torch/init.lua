@@ -390,6 +390,69 @@ function torch.max_pool2d(input, kernel_size, stride, padding, dilation, ceil_mo
     ceil_mode and 1 or 0))
 end
 
+function torch.avg_pool2d(input, kernel_size, stride, padding, ceil_mode, count_include_pad)
+  if not Tensor.is_tensor(input) then
+    error("torch.avg_pool2d expects a Tensor", 2)
+  end
+  local kernel_h, kernel_w = as_pair(kernel_size, "kernel_size")
+  local stride_h, stride_w = as_pair(stride or kernel_size, "stride")
+  local pad_h, pad_w = as_pair(padding or 0, "padding")
+  if count_include_pad == nil then
+    count_include_pad = true
+  end
+  return Tensor._wrap(lib.lt_avg_pool2d(
+    input.h, kernel_h, kernel_w, stride_h, stride_w,
+    pad_h, pad_w, ceil_mode and 1 or 0, count_include_pad and 1 or 0))
+end
+
+local function shape_cdata(shape)
+  local array = ffi.new("int64_t[?]", #shape)
+  for i = 1, #shape do
+    array[i - 1] = shape[i]
+  end
+  return array, #shape
+end
+
+function torch.embedding(weight, indices)
+  if not Tensor.is_tensor(weight) or not Tensor.is_tensor(indices) then
+    error("torch.embedding expects weight and indices tensors", 2)
+  end
+  -- Embedding indices are 1-based at the Lua surface.
+  local zero_based = indices:to(torch.int64):sub(1)
+  return Tensor._wrap(lib.lt_embedding(weight.h, zero_based.h))
+end
+
+function torch.layer_norm(input, normalized_shape, weight, bias, eps)
+  if not Tensor.is_tensor(input) then
+    error("torch.layer_norm expects a Tensor input", 2)
+  end
+  local shape
+  if type(normalized_shape) == "number" then
+    shape = { normalized_shape }
+  elseif type(normalized_shape) == "table" then
+    shape = normalized_shape
+  else
+    error("torch.layer_norm: normalized_shape must be a number or table", 2)
+  end
+  local weight_pointer = nil
+  if weight ~= nil then
+    if not Tensor.is_tensor(weight) then
+      error("torch.layer_norm: weight must be a Tensor or nil", 2)
+    end
+    weight_pointer = weight.h
+  end
+  local bias_pointer = nil
+  if bias ~= nil then
+    if not Tensor.is_tensor(bias) then
+      error("torch.layer_norm: bias must be a Tensor or nil", 2)
+    end
+    bias_pointer = bias.h
+  end
+  local array, ndim = shape_cdata(shape)
+  return Tensor._wrap(lib.lt_layer_norm(
+    input.h, weight_pointer, bias_pointer, ndim, array, eps or 1e-5))
+end
+
 function torch.cross_entropy(input, target, reduction)
   if not Tensor.is_tensor(input) or not Tensor.is_tensor(target) then
     error("torch.cross_entropy expects input and target tensors", 2)
@@ -463,7 +526,7 @@ end
 -- cycle when the user starts with `require("torch.nn")`.
 setmetatable(torch, {
   __index = function(self, key)
-    if key == "nn" or key == "optim" then
+    if key == "nn" or key == "optim" or key == "utils" then
       local package = require("torch." .. key)
       rawset(self, key, package)
       return package

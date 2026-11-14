@@ -82,8 +82,11 @@ references.
 | `nn.Linear(in, out, bias?)` | affine transform over the last dimension |
 | `nn.Conv2d(in, out, kernel, opts?)` | 2-D convolution, NCHW, groups supported |
 | `nn.MaxPool2d(kernel, stride?, padding?, dilation?, ceil_mode?)` | max pooling |
+| `nn.AvgPool2d(kernel, stride?, padding?, ceil_mode?, count_include_pad?)` | average pooling |
 | `nn.AdaptiveAvgPool2d(1)` | global average pooling |
 | `nn.BatchNorm2d(features, opts?)` | `eps`, `momentum`, `affine`, `track_running_stats` |
+| `nn.LayerNorm(normalized_shape, opts?)` | `eps`, `elementwise_affine`; normalizes trailing dims |
+| `nn.Embedding(num_embeddings, dim)` | 1-based index lookup; `padding_idx` not supported yet |
 | `nn.Dropout(p?, inplace?)` | inverted dropout |
 | `nn.Dropout2d(p?, inplace?)` | elementwise dropout with a 2-D name |
 | `nn.ReLU(inplace?)` | rectifier |
@@ -112,6 +115,36 @@ model:add(nn.Dropout(0.2))     -- append a module
 `Conv2d` options can be a table (`{stride = 2, padding = 1, dilation = 1,
 groups = 1, bias = true}`) or positional arguments. Kernel, stride, padding and
 dilation accept a number or `{height, width}`.
+
+## Data loading
+
+`torch.utils.data` ships an in-memory dataset and a batcher:
+
+```lua
+local data = require("torch.utils.data")
+
+local dataset = data.TensorDataset(inputs, labels)   -- same first dimension
+local loader = data.DataLoader(dataset, {
+  batch_size = 64,
+  shuffle = true,
+  drop_last = false,
+})
+
+for batch_inputs, batch_labels in loader:iter() do
+  local loss = criterion(model(batch_inputs), batch_labels)
+  optimizer:zero_grad()
+  loss:backward()
+  optimizer:step()
+end
+```
+
+- `dataset:size()` and `dataset:get(index)` (1-based) define a custom dataset.
+- Datasets may implement `dataset:batch(indices)` to return a whole batch
+  (TensorDataset uses `index_select`, avoiding per-sample overhead).
+- Shuffling uses the global RNG; call `torch.manual_seed` for reproducibility.
+- `drop_last` discards an incomplete final batch; `loader:num_batches()` gives
+  the number of batches per epoch.
+- There are no built-in image/text datasets yet; build tensors and wrap them.
 
 ## Losses
 
@@ -172,12 +205,36 @@ All optimizers take `(parameters, options)` and expose `step()` and
 | --- | --- |
 | `optim.SGD` | `lr`, `momentum`, `dampening`, `weight_decay`, `nesterov` |
 | `optim.Adam` | `lr`, `betas = {b1, b2}`, `eps`, `weight_decay` |
+| `optim.AdamW` | Adam with decoupled weight decay |
 | `optim.RMSprop` | `lr`, `alpha`, `eps`, `weight_decay`, `momentum`, `centered` |
 | `optim.Adagrad` | `lr`, `lr_decay`, `weight_decay`, `eps`, `initial_accumulator_value` |
 
 Passing a number as options means `{lr = number}`. Per-parameter state is keyed
-by tensor identity. Gradient clipping and learning-rate schedulers are not
-implemented yet.
+by tensor identity.
+
+### Gradient clipping
+
+```lua
+optim.clip_grad_norm_(model:parameters(), 1.0)        -- global L2 norm
+optim.clip_grad_norm_(model:parameters(), 1.0, math.huge)
+optim.clip_grad_value_(model:parameters(), 0.5)       -- elementwise clamp
+```
+
+### Learning-rate schedulers
+
+Call `scheduler:step()` once per epoch, after `optimizer:step()`:
+
+```lua
+local scheduler = optim.lr_scheduler.StepLR(optimizer, 30, 0.5)
+local scheduler2 = optim.lr_scheduler.MultiStepLR(optimizer, {30, 60}, 0.1)
+local scheduler3 = optim.lr_scheduler.ExponentialLR(optimizer, 0.99)
+local scheduler4 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max)
+local scheduler5 = optim.lr_scheduler.LambdaLR(optimizer, function(epoch)
+  return 1 / epoch
+end)
+```
+
+Schedulers mutate `optimizer.lr`; they do not own parameter state.
 
 Create the optimizer **after** converting the model dtype, because
 `module:to(dtype)` replaces parameter objects:
@@ -208,13 +265,18 @@ in that format, and state-dict interop with PyTorch is on the roadmap.
 ## Training recipe
 
 ```lua
+local loader = data.DataLoader(dataset, {batch_size = 64, shuffle = true})
+local scheduler = optim.lr_scheduler.StepLR(optimizer, 30, 0.5)
+
 for epoch = 1, epochs do
   model:train()
-  local output = model(inputs)
-  local loss = criterion(output, targets)
-  optimizer:zero_grad()
-  loss:backward()
-  optimizer:step()
+  for inputs, targets in loader:iter() do
+    local loss = criterion(model(inputs), targets)
+    optimizer:zero_grad()
+    loss:backward()
+    optimizer:step()
+  end
+  scheduler:step()
 end
 
 model:eval()
@@ -232,11 +294,13 @@ local accuracy = model(test_inputs):argmax(2):eq(test_targets)
 
 ## Current limitations
 
-- No `DataLoader` / datasets yet; feed tensors directly.
+- No built-in datasets; `DataLoader` works on in-memory tensors and custom
+  dataset objects.
 - `nn.save`/`nn.load` use a luatorch-specific format; PyTorch state-dict
   interop is on the roadmap.
-- `ConvTranspose2d`, `AvgPool2d`, embeddings, RNNs, and weight-norm layers are
-  not implemented.
+- `ConvTranspose2d`, GroupNorm, RNN/LSTM and weight-norm layers are not
+  implemented.
+- `Embedding` does not support `padding_idx` yet.
 - Cross entropy supports plain class targets and `mean`/`sum`/`none`; class
   weights, `ignore_index` and label smoothing are rejected explicitly.
 - Modules are CPU-only until the CUDA libtorch build lands.

@@ -987,6 +987,59 @@ lt_tensor* lt_max_pool2d(
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_avg_pool2d(
+    lt_tensor* input,
+    int64_t kernel_h, int64_t kernel_w,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int ceil_mode, int count_include_pad) {
+  try {
+    clear_error();
+    return wrap(at::avg_pool2d(
+        input->t,
+        at::IntArrayRef({kernel_h, kernel_w}),
+        at::IntArrayRef({stride_h, stride_w}),
+        at::IntArrayRef({pad_h, pad_w}),
+        ceil_mode != 0,
+        count_include_pad != 0));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_embedding(lt_tensor* weight, lt_tensor* indices) {
+  try {
+    clear_error();
+    if (indices->t.scalar_type() != at::kLong) {
+      throw std::runtime_error("embedding: indices must be int64");
+    }
+    return wrap(at::embedding(weight->t, indices->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_layer_norm(
+    lt_tensor* input, const lt_tensor* weight, const lt_tensor* bias,
+    int64_t ndim, const int64_t* normalized_shape, double eps) {
+  try {
+    clear_error();
+    std::optional<at::Tensor> weight_tensor;
+    std::optional<at::Tensor> bias_tensor;
+    if (weight != nullptr) {
+      weight_tensor = weight->t;
+    }
+    if (bias != nullptr) {
+      bias_tensor = bias->t;
+    }
+    return wrap(at::layer_norm(
+        input->t,
+        make_shape(ndim, normalized_shape),
+        weight_tensor,
+        bias_tensor,
+        eps));
+  }
+  LT_CATCH_NULL
+}
+
 lt_tensor* lt_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction) {
   try {
     clear_error();

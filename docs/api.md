@@ -194,6 +194,46 @@ a:bmm(b)        -- batched 3-D matmul
 a:dot(b)        -- 1-D dot product
 ```
 
+## Neural-network primitives
+
+These back `torch.nn`; they are also useful when writing custom layers.
+
+```lua
+t:softmax(dim?)        t:log_softmax(dim?)     -- dim defaults to the last
+t:uniform_(low?, high?)                       -- random in-place init
+
+torch.softmax(t, dim)  torch.log_softmax(t, dim)
+torch.conv2d(input, weight, bias, stride?, padding?, dilation?, groups?)
+torch.max_pool2d(input, kernel, stride?, padding?, dilation?, ceil_mode?)
+torch.avg_pool2d(input, kernel, stride?, padding?, ceil_mode?, count_include_pad?)
+torch.embedding(weight, indices)                -- 1-based indices
+torch.layer_norm(input, normalized_shape, weight?, bias?, eps?)
+torch.cross_entropy(input, target, reduction?)  -- targets are 1-based
+torch.nll_loss(log_probs, target, reduction?)
+torch.binary_cross_entropy_with_logits(input, target, reduction?)
+torch.uniform_(t, low, high)
+```
+
+`reduction` is `"none"`, `"mean"` (default) or `"sum"`.
+
+## Data loading
+
+```lua
+local data = require("torch.utils.data")   -- or torch.utils.data
+
+local dataset = data.TensorDataset(inputs, labels)  -- 1-based get()
+local loader = data.DataLoader(dataset, {
+  batch_size = 64, shuffle = true, drop_last = false,
+})
+for batch_inputs, batch_labels in loader:iter() do
+  -- ...
+end
+```
+
+Custom datasets implement `size()` and `get(index)`; an optional `batch(indices)`
+can return a whole batch at once. See [docs/nn.md](nn.md#data-loading) for
+datasets, modules, losses and optimizers.
+
 ## Shape manipulation
 
 ```lua

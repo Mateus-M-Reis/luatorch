@@ -20,7 +20,8 @@ Non-goals for 0.2: full operator parity with ATen, CUDA, Windows, a complete
      lua/torch/init.lua        public module: constructors, aliases, no_grad
      lua/torch/tensor.lua      Tensor class: methods, operators, printing, luafun
      lua/torch/nn/*            modules, losses, containers, functional API
-     lua/torch/optim/*         SGD, Adam, RMSprop, Adagrad
+     lua/torch/optim/*         SGD, Adam(W), RMSprop, Adagrad, clipping, schedulers
+     lua/torch/utils/*         Dataset, TensorDataset, DataLoader
      lua/torch/lib.lua         ffi.cdef declarations + shared library loader
               │
         LuaJIT FFI (C ABI only)
@@ -146,6 +147,9 @@ Design points:
   tensor followed by contiguous bytes; loading reconstructs detached tensors and
   uses `load_state_dict`, so the architecture is validated (and dtypes cast) on
   the way in.
+- **DataLoader** produces batches from an in-memory dataset. `TensorDataset`
+  batches with `index_select`; custom datasets are collated by stacking
+  per-sample tensors. Shuffling uses `randperm` converted to 1-based indices.
 - **Optimizers** keep per-parameter state in a table keyed by tensor identity.
   SGD, Adam, RMSprop and Adagrad follow their PyTorch update equations,
   including Adam bias correction. The update path allocates a few temporaries
@@ -155,7 +159,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 160 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 189 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),

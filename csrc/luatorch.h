@@ -195,6 +195,16 @@ lt_tensor* lt_max_pool2d(
     int64_t pad_h, int64_t pad_w,
     int64_t dilation_h, int64_t dilation_w,
     int ceil_mode);
+lt_tensor* lt_avg_pool2d(
+    lt_tensor* input,
+    int64_t kernel_h, int64_t kernel_w,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int ceil_mode, int count_include_pad);
+lt_tensor* lt_embedding(lt_tensor* weight, lt_tensor* indices);
+lt_tensor* lt_layer_norm(
+    lt_tensor* input, const lt_tensor* weight, const lt_tensor* bias,
+    int64_t ndim, const int64_t* normalized_shape, double eps);
 lt_tensor* lt_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction);
 lt_tensor* lt_nll_loss(lt_tensor* input, lt_tensor* target, int64_t reduction);
 lt_tensor* lt_binary_cross_entropy_with_logits(

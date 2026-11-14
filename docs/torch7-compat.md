@@ -55,6 +55,8 @@ utilities Torch7 code often imported from Moses.
 | `nn.ReLU()` / `nn.Sigmoid()` / `nn.Tanh()` | same |
 | `nn.SpatialConvolution(ci, co, kw, kh)` | `nn.Conv2d(ci, co, {kw, kh})` (NCHW) |
 | `nn.SpatialMaxPooling(k, k)` | `nn.MaxPool2d(k)` |
+| `nn.SpatialAveragePooling(k, k)` | `nn.AvgPool2d(k)` |
+| `nn.LookupTable(n, d)` | `nn.Embedding(n, d)` (1-based indices) |
 | `nn.BatchNormalization(c)` | `nn.BatchNorm2d(c)` |
 | `nn.Dropout(p)` | same |
 | `nn.MSECriterion()` | `nn.MSELoss()` |
@@ -71,7 +73,9 @@ utilities Torch7 code often imported from Moses.
 
 Torch7 modules exposed `updateOutput`/`updateGradInput`; luatorch modules only
 implement `forward`, because gradients are recorded by ATen autograd when the
-loss calls `:backward()`. See [nn.md](nn.md).
+loss calls `:backward()`. Mini-batching uses `torch.utils.data.TensorDataset`
+and `DataLoader` instead of Torch7's data-loading packages. See
+[nn.md](nn.md).
 
 ## Moses → luafun
 

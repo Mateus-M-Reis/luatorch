@@ -88,6 +88,55 @@ function BatchNorm2d:format()
     self.num_features, self.eps, self.momentum)
 end
 
+local LayerNorm = Module.class("LayerNorm")
+
+function LayerNorm.new(normalized_shape, options)
+  options = options or {}
+  local shape
+  if type(normalized_shape) == "number" then
+    shape = { normalized_shape }
+  elseif type(normalized_shape) == "table" then
+    shape = normalized_shape
+  else
+    error("LayerNorm expects a number or a shape table", 3)
+  end
+  for i = 1, #shape do
+    if type(shape[i]) ~= "number" or shape[i] % 1 ~= 0 or shape[i] <= 0 then
+      error("LayerNorm: invalid normalized shape", 3)
+    end
+  end
+
+  local self = setmetatable(Module.new(), LayerNorm)
+  self.normalized_shape = shape
+  self.eps = options.eps or 1e-5
+  self.elementwise_affine = options.elementwise_affine ~= false
+  if self.elementwise_affine then
+    self:register_parameter("weight", torch.ones(shape))
+    self:register_parameter("bias", torch.zeros(shape))
+  end
+  self:_refresh_aliases()
+  return self
+end
+
+function LayerNorm:_refresh_aliases()
+  self.weight = self._parameters.weight
+  self.bias = self._parameters.bias
+end
+
+function LayerNorm:forward(input)
+  return torch.layer_norm(
+    input, self.normalized_shape, self.weight, self.bias, self.eps)
+end
+
+function LayerNorm:format()
+  local parts = {}
+  for i = 1, #self.normalized_shape do
+    parts[i] = tostring(self.normalized_shape[i])
+  end
+  return "LayerNorm(" .. table.concat(parts, ", ") .. ")"
+end
+
 return {
   BatchNorm2d = BatchNorm2d,
+  LayerNorm = LayerNorm,
 }

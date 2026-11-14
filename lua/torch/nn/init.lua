@@ -29,6 +29,7 @@ local groups = {
   require("torch.nn.conv"),
   require("torch.nn.pooling"),
   require("torch.nn.normalization"),
+  require("torch.nn.embedding"),
   require("torch.nn.dropout"),
 }
 

@@ -24,6 +24,7 @@ function Adam.new(params, options)
   self.beta2 = betas[2]
   self.eps = options.eps or 1e-8
   self.weight_decay = options.weight_decay or 0
+  self.decoupled_weight_decay = false
   return self
 end
 
@@ -41,7 +42,11 @@ function Adam:step()
         state.step = state.step + 1
 
         if self.weight_decay ~= 0 then
-          gradient = gradient:add(parameter:mul(self.weight_decay))
+          if self.decoupled_weight_decay then
+            parameter:mul_(1 - self.lr * self.weight_decay)
+          else
+            gradient = gradient:add(parameter:mul(self.weight_decay))
+          end
         end
 
         state.exp_avg:mul_(self.beta1):add_(gradient:mul(1 - self.beta1))

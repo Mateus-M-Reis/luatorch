@@ -17,7 +17,7 @@ well-tested tensor library. `luatorch` reconnects the two:
 
 > Status: **0.2.0 alpha**, CPU build. Core tensors, math, autograd, I/O, the
 > luafun bridge, and the first `nn`/`optim` layer are implemented and covered by
-> **160 tests**. CUDA, data loading, and the long tail of ATen operators are next
+> **189 tests**. CUDA, more datasets, and the long tail of ATen operators are next
 > (see [ROADMAP.md](ROADMAP.md)).
 
 ---
@@ -89,6 +89,7 @@ training recipe. Runnable examples live in `examples/`:
 
 - `linear_regression.lua` — autograd and scalar parameters
 - `mlp_classification.lua` — 3-class MLP with Adam
+- `mlp_dataloader.lua` — mini-batch training with TensorDataset/DataLoader
 - `cnn_classification.lua` — convolution + pooling on synthetic images
 - `luafun_pipeline.lua` — functional pipelines over tables and tensors
 
@@ -101,7 +102,7 @@ official prebuilt **libtorch** (CPU, C++11 ABI, 2.5.1).
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 160 tests
+scripts/test.sh               # 189 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL with torch preloaded
 ```
@@ -133,8 +134,9 @@ cmake --install build --prefix "$HOME/.local"
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `zero_grad`, `no_grad`, `set_grad_enabled` |
 | I/O | `torch.save`/`torch.load` using the PyTorch zip archive format; `model:save`/`model:load` for state dictionaries |
 | Functional | `Tensor:iter/map/filter/reduce/apply`, `Tensor:fun()`, and the vendored luafun |
-| Neural nets | `nn.Linear`, `Conv2d`, `MaxPool2d`, `AdaptiveAvgPool2d`, `BatchNorm2d`, `Dropout`, `ReLU`/`LeakyReLU`/`Sigmoid`/`Tanh`, `Softmax`/`LogSoftmax`, `Flatten`, `Sequential`, `ModuleList`, MSE/L1/CrossEntropy/NLL/BCE losses |
-| Optimizers | `SGD` (momentum, nesterov, weight decay), `Adam`, `RMSprop`, `Adagrad` |
+| Neural nets | `nn.Linear`, `Conv2d`, `MaxPool2d`, `AvgPool2d`, `AdaptiveAvgPool2d`, `BatchNorm2d`, `LayerNorm`, `Embedding`, `Dropout`, `ReLU`/`LeakyReLU`/`Sigmoid`/`Tanh`, `Softmax`/`LogSoftmax`, `Flatten`, `Sequential`, `ModuleList`, MSE/L1/CrossEntropy/NLL/BCE losses |
+| Data | `TensorDataset`, `DataLoader` with batching, shuffling and `drop_last`; custom `Dataset` protocol |
+| Optimizers | `SGD` (momentum, nesterov, weight decay), `Adam`, `AdamW`, `RMSprop`, `Adagrad`, gradient clipping, Step/MultiStep/Exponential/Cosine/Lambda LR schedulers |
 | Print | PyTorch-style `tensor([...])`, dtype and `requires_grad` annotations |
 
 ## Deliberate design choices
