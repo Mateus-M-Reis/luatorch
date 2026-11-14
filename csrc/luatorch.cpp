@@ -287,6 +287,187 @@ at::Tensor norm_impl(
 
 }  // namespace
 
+/* ------------------------------------------------------------------ */
+/* fused optimizer updates                                             */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+void require_optimizer_tensor(
+    const at::Tensor& reference, const at::Tensor& other, const char* what) {
+  if (!other.defined()) {
+    return;
+  }
+  if (reference.scalar_type() != other.scalar_type()) {
+    throw std::runtime_error(std::string(what) + ": dtype mismatch");
+  }
+  if (reference.dim() != other.dim()) {
+    throw std::runtime_error(std::string(what) + ": rank mismatch");
+  }
+  for (int64_t i = 0; i < reference.dim(); ++i) {
+    if (reference.size(i) != other.size(i)) {
+      throw std::runtime_error(std::string(what) + ": shape mismatch");
+    }
+  }
+  if (!reference.is_contiguous() || !other.is_contiguous()) {
+    throw std::runtime_error(std::string(what) + ": tensors must be contiguous");
+  }
+  if (!reference.device().is_cpu() || !other.device().is_cpu()) {
+    throw std::runtime_error(std::string(what) + ": CPU tensors required");
+  }
+}
+
+template <typename scalar_t>
+void adam_step_typed(
+    at::Tensor& parameter, const at::Tensor& gradient,
+    at::Tensor& exp_avg, at::Tensor& exp_avg_sq,
+    double lr, double beta1, double beta2, double eps,
+    double weight_decay, int64_t step, bool decoupled) {
+  scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  scalar_t* __restrict m = exp_avg.mutable_data_ptr<scalar_t>();
+  scalar_t* __restrict v = exp_avg_sq.mutable_data_ptr<scalar_t>();
+  const int64_t n = parameter.numel();
+
+  const scalar_t beta1_s = static_cast<scalar_t>(beta1);
+  const scalar_t beta2_s = static_cast<scalar_t>(beta2);
+  const scalar_t one_minus_beta1 = static_cast<scalar_t>(1.0 - beta1);
+  const scalar_t one_minus_beta2 = static_cast<scalar_t>(1.0 - beta2);
+  const scalar_t bias_correction1 =
+      static_cast<scalar_t>(1.0 - std::pow(beta1, static_cast<double>(step)));
+  const scalar_t bias_correction2 =
+      static_cast<scalar_t>(1.0 - std::pow(beta2, static_cast<double>(step)));
+  const scalar_t step_size = static_cast<scalar_t>(lr) / bias_correction1;
+  const scalar_t inverse_bias_correction2_sqrt =
+      static_cast<scalar_t>(1.0 / std::sqrt(bias_correction2));
+  const scalar_t eps_s = static_cast<scalar_t>(eps);
+  const scalar_t decay = static_cast<scalar_t>(lr * weight_decay);
+  const scalar_t weight_decay_s = static_cast<scalar_t>(weight_decay);
+
+  for (int64_t i = 0; i < n; ++i) {
+    scalar_t parameter_value = p[i];
+    scalar_t gradient_value = g[i];
+    if (weight_decay != 0.0) {
+      if (decoupled) {
+        parameter_value *= (static_cast<scalar_t>(1) - decay);
+      } else {
+        gradient_value += weight_decay_s * parameter_value;
+      }
+    }
+    const scalar_t first_moment =
+        beta1_s * m[i] + one_minus_beta1 * gradient_value;
+    const scalar_t second_moment =
+        beta2_s * v[i] + one_minus_beta2 * gradient_value * gradient_value;
+    m[i] = first_moment;
+    v[i] = second_moment;
+    const scalar_t denominator =
+        std::sqrt(second_moment) * inverse_bias_correction2_sqrt + eps_s;
+    parameter_value -= step_size * first_moment / denominator;
+    p[i] = parameter_value;
+  }
+}
+
+template <typename scalar_t>
+void sgd_step_typed(
+    at::Tensor& parameter, const at::Tensor& gradient,
+    at::Tensor* momentum_buffer,
+    double lr, double momentum, double dampening,
+    double weight_decay, bool nesterov, bool first_step) {
+  scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  scalar_t* __restrict buffer = momentum_buffer != nullptr
+      ? momentum_buffer->mutable_data_ptr<scalar_t>()
+      : nullptr;
+  const int64_t n = parameter.numel();
+
+  const scalar_t lr_s = static_cast<scalar_t>(lr);
+  const scalar_t momentum_s = static_cast<scalar_t>(momentum);
+  const scalar_t one_minus_dampening = static_cast<scalar_t>(1.0 - dampening);
+  const scalar_t weight_decay_s = static_cast<scalar_t>(weight_decay);
+
+  for (int64_t i = 0; i < n; ++i) {
+    scalar_t parameter_value = p[i];
+    scalar_t gradient_value = g[i];
+    if (weight_decay != 0.0) {
+      gradient_value += weight_decay_s * parameter_value;
+    }
+    if (momentum != 0.0) {
+      scalar_t buffer_value;
+      if (first_step) {
+        buffer_value = gradient_value;
+      } else {
+        buffer_value = momentum_s * buffer[i] + one_minus_dampening * gradient_value;
+      }
+      buffer[i] = buffer_value;
+      if (nesterov) {
+        gradient_value += momentum_s * buffer_value;
+      } else {
+        gradient_value = buffer_value;
+      }
+    }
+    p[i] = parameter_value - lr_s * gradient_value;
+  }
+}
+
+}  // namespace
+
+int lt_adam_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* exp_avg, lt_tensor* exp_avg_sq,
+    double lr, double beta1, double beta2, double eps,
+    double weight_decay, int64_t step, int decoupled) {
+  try {
+    clear_error();
+    if (step <= 0) {
+      throw std::runtime_error("adam_step: step must be positive");
+    }
+    require_optimizer_tensor(parameter->t, gradient->t, "adam_step gradient");
+    require_optimizer_tensor(parameter->t, exp_avg->t, "adam_step exp_avg");
+    require_optimizer_tensor(parameter->t, exp_avg_sq->t, "adam_step exp_avg_sq");
+
+    if (parameter->t.scalar_type() == at::kFloat) {
+      adam_step_typed<float>(parameter->t, gradient->t, exp_avg->t,
+        exp_avg_sq->t, lr, beta1, beta2, eps, weight_decay, step, decoupled != 0);
+    } else if (parameter->t.scalar_type() == at::kDouble) {
+      adam_step_typed<double>(parameter->t, gradient->t, exp_avg->t,
+        exp_avg_sq->t, lr, beta1, beta2, eps, weight_decay, step, decoupled != 0);
+    } else {
+      throw std::runtime_error("adam_step: float32 or float64 parameters required");
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_sgd_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* momentum_buffer,
+    double lr, double momentum, double dampening,
+    double weight_decay, int nesterov, int first_step) {
+  try {
+    clear_error();
+    require_optimizer_tensor(parameter->t, gradient->t, "sgd_step gradient");
+    if (momentum_buffer != nullptr) {
+      require_optimizer_tensor(parameter->t, momentum_buffer->t, "sgd_step buffer");
+    }
+
+    if (parameter->t.scalar_type() == at::kFloat) {
+      sgd_step_typed<float>(parameter->t, gradient->t,
+        momentum_buffer != nullptr ? &momentum_buffer->t : nullptr,
+        lr, momentum, dampening, weight_decay, nesterov != 0, first_step != 0);
+    } else if (parameter->t.scalar_type() == at::kDouble) {
+      sgd_step_typed<double>(parameter->t, gradient->t,
+        momentum_buffer != nullptr ? &momentum_buffer->t : nullptr,
+        lr, momentum, dampening, weight_decay, nesterov != 0, first_step != 0);
+    } else {
+      throw std::runtime_error("sgd_step: float32 or float64 parameters required");
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+
 extern "C" {
 
 /* ------------------------------------------------------------------ */

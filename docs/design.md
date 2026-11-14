@@ -183,7 +183,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 229 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 233 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
@@ -219,6 +219,12 @@ Two implementation details matter for speed:
   full collection when the total crosses 64 MB. Finalizers use
   `lt_free_counted`, which deliberately does not clear the thread-local error
   (otherwise a GC during `ffi.string` can erase an error message being read).
+
+Optimizer updates use the same philosophy: Adam/AdamW/SGD are single C loops
+over `data_ptr`, with `__restrict` pointers and `-O3 -march=native
+-fno-math-errno`, avoiding the ~10 temporary tensors the Lua implementation
+would allocate. This makes the optimizer step ~5x faster than PyTorch on the
+MLP benchmark.
 
 Unsupported expressions, shape mismatches and autograd inputs fall back to
 eager execution, so the tracer is never on the correctness path.

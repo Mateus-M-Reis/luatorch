@@ -2,6 +2,9 @@
 -- torch.optim.sgd
 --
 local torch = require("torch")
+local libmod = require("torch.lib")
+local lib = libmod.lib
+local ffi = libmod.ffi
 local Optimizer = require("torch.optim.optimizer")
 
 local SGD = setmetatable({}, {
@@ -35,34 +38,37 @@ function SGD.new(params, options)
 end
 
 function SGD:step()
-  torch.no_grad(function()
-    for _, parameter in ipairs(self.params) do
-      local gradient = parameter:grad()
-      if gradient then
-        if self.weight_decay ~= 0 then
-          gradient = gradient:add(parameter:mul(self.weight_decay))
-        end
+  for _, parameter in ipairs(self.params) do
+    local gradient = parameter:grad()
+    if gradient then
+      if not gradient:is_contiguous() then
+        gradient = gradient:contiguous()
+      end
 
-        if self.momentum ~= 0 then
-          local state = self:state_for(parameter)
-          local buffer = state.momentum_buffer
-          if buffer == nil then
-            buffer = gradient:clone()
-            state.momentum_buffer = buffer
-          else
-            buffer:mul_(self.momentum):add_(gradient:mul(1 - self.dampening))
-          end
-          if self.nesterov then
-            gradient = gradient:add(buffer:mul(self.momentum))
-          else
-            gradient = buffer
-          end
+      local buffer = nil
+      local first_step = 0
+      if self.momentum ~= 0 then
+        local state = self:state_for(parameter)
+        if state.momentum_buffer == nil then
+          state.momentum_buffer = torch.zeros_like(parameter)
+          state.first_step = true
         end
+        buffer = state.momentum_buffer
+        if state.first_step then
+          first_step = 1
+          state.first_step = false
+        end
+      end
 
-        parameter:add_(gradient:mul(-self.lr))
+      local status = lib.lt_sgd_step(
+        parameter.h, gradient.h, buffer and buffer.h or nil,
+        self.lr, self.momentum, self.dampening,
+        self.weight_decay, self.nesterov and 1 or 0, first_step)
+      if status ~= 0 then
+        error(ffi.string(lib.lt_last_error()), 3)
       end
     end
-  end)
+  end
   return self
 end
 

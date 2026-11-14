@@ -128,15 +128,17 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 
 | workload | luatorch | torch eager | speedup | torch.compile |
 | --- | ---: | ---: | ---: | ---: |
-| `add` out-of-place | 0.84 ms | 0.78 ms | 0.93x | — |
-| `add_` in-place | 0.52 ms | 0.55 ms | 1.06x | — |
-| `a*b+c` | 1.60 ms | 7.13 ms | 4.45x | — |
-| `(a*b+c):relu()` eager | 2.30 ms | 10.56 ms | 4.60x | 1.05 ms |
-| fused, into | **1.00 ms** | 10.56 ms | **10.5x** | 1.05 ms (1.05x) |
-| fused, alloc | **1.01 ms** | 10.56 ms | **10.4x** | 1.05 ms (1.04x) |
-| `sum` | 0.10 ms | 0.15 ms | 1.44x | — |
-| `exp` | 3.02 ms | 3.04 ms | 1.01x | — |
-| `matmul 512` | 7.91 ms | 7.54 ms | 0.95x | — |
+| `add` out-of-place | 0.81 ms | 0.83 ms | 1.03x | — |
+| `add_` in-place | 0.55 ms | 0.55 ms | 1.00x | — |
+| `a*b+c` | 1.57 ms | 4.78 ms | 3.05x | — |
+| `(a*b+c):relu()` eager | 2.17 ms | 5.53 ms | 2.55x | 1.05 ms |
+| fused, into | 1.09 ms | 5.53 ms | 5.07x | 1.05 ms (0.96x) |
+| fused, alloc | 1.03 ms | 5.53 ms | 5.36x | 1.05 ms (1.01x) |
+| `sum` | 0.11 ms | 0.14 ms | 1.20x | — |
+| `exp` | 3.02 ms | 3.02 ms | 1.00x | — |
+| `matmul 512` | 7.66 ms | 7.67 ms | 1.00x | — |
+| MLP Adam step | **0.224 ms** | 1.137 ms | **5.08x** | — |
+| MLP train step | **3.97 ms** | 5.12 ms | **1.29x** | — |
 
 Caveats:
 
@@ -144,7 +146,9 @@ Caveats:
   runs. The harness uses best-of-N and one thread.
 - `torch.compile` also fuses elementwise chains. We are roughly at parity on
   this one kernel (about 1 ms for both); the honest claim is "competitive with
-  compiled PyTorch, 10x faster than eager on this chain".
+  compiled PyTorch, several times faster than eager on chains".
+- Adam/AdamW/SGD use fused update kernels: the optimizer step is ~5x faster
+  than PyTorch's, which lifts the full MLP training step to ~1.3x.
 - Matrix multiplication uses the same class of BLAS kernels on both sides, so a
   tie is the expected result.
 

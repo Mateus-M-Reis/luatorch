@@ -22,6 +22,10 @@ if(OpenMP_CXX_FOUND)
   target_link_libraries(luatorch PRIVATE OpenMP::OpenMP_CXX)
 endif()
 
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(luatorch PRIVATE -O3 -march=native -fno-math-errno)
+endif()
+
 set_target_properties(luatorch PROPERTIES
   OUTPUT_NAME "luatorch"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

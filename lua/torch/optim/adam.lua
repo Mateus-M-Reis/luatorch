@@ -2,6 +2,9 @@
 -- torch.optim.adam
 --
 local torch = require("torch")
+local libmod = require("torch.lib")
+local lib = libmod.lib
+local ffi = libmod.ffi
 local Optimizer = require("torch.optim.optimizer")
 
 local Adam = setmetatable({}, {
@@ -29,41 +32,31 @@ function Adam.new(params, options)
 end
 
 function Adam:step()
-  torch.no_grad(function()
-    for _, parameter in ipairs(self.params) do
-      local gradient = parameter:grad()
-      if gradient then
-        local state = self:state_for(parameter)
-        if state.step == nil then
-          state.step = 0
-          state.exp_avg = torch.zeros_like(parameter)
-          state.exp_avg_sq = torch.zeros_like(parameter)
-        end
-        state.step = state.step + 1
+  for _, parameter in ipairs(self.params) do
+    local gradient = parameter:grad()
+    if gradient then
+      local state = self:state_for(parameter)
+      if state.step == nil then
+        state.step = 0
+        state.exp_avg = torch.zeros_like(parameter)
+        state.exp_avg_sq = torch.zeros_like(parameter)
+      end
+      state.step = state.step + 1
 
-        if self.weight_decay ~= 0 then
-          if self.decoupled_weight_decay then
-            parameter:mul_(1 - self.lr * self.weight_decay)
-          else
-            gradient = gradient:add(parameter:mul(self.weight_decay))
-          end
-        end
+      if not gradient:is_contiguous() then
+        gradient = gradient:contiguous()
+      end
 
-        state.exp_avg:mul_(self.beta1):add_(gradient:mul(1 - self.beta1))
-        state.exp_avg_sq:mul_(self.beta2)
-          :add_(gradient:mul(gradient):mul(1 - self.beta2))
-
-        local bias_correction1 = 1 - self.beta1 ^ state.step
-        local bias_correction2 = 1 - self.beta2 ^ state.step
-        local step_size = self.lr / bias_correction1
-        local denominator = state.exp_avg_sq:sqrt()
-          :div(math.sqrt(bias_correction2))
-          :add_(self.eps)
-
-        parameter:add_(state.exp_avg:div(denominator):mul(-step_size))
+      local status = lib.lt_adam_step(
+        parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
+        self.lr, self.beta1, self.beta2, self.eps,
+        self.weight_decay, state.step,
+        self.decoupled_weight_decay and 1 or 0)
+      if status ~= 0 then
+        error(ffi.string(lib.lt_last_error()), 3)
       end
     end
-  end)
+  end
   return self
 end
 

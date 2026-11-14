@@ -114,3 +114,77 @@ test("scheduler toString", function()
   local scheduler = optim.lr_scheduler.StepLR(optimizer, 3, 0.5)
   assert_true(tostring(scheduler):find("StepLR", 1, true) ~= nil)
 end)
+
+test("fused Adam matches a reference implementation", function()
+  local lr, beta1, beta2, eps = 0.01, 0.9, 0.999, 1e-8
+  local parameter = torch.tensor({ 1.0, -2.0, 0.5 }, { requires_grad = true })
+  local reference = parameter:detach():clone()
+  local first_moment = torch.zeros_like(reference)
+  local second_moment = torch.zeros_like(reference)
+  local optimizer = optim.Adam({ parameter },
+    { lr = lr, betas = { beta1, beta2 }, eps = eps })
+
+  for step = 1, 5 do
+    local loss = (parameter * parameter):sum()
+    optimizer:zero_grad()
+    loss:backward()
+    optimizer:step()
+
+    local gradient = reference * 2
+    first_moment = first_moment * beta1 + gradient * (1 - beta1)
+    second_moment = second_moment * beta2 +
+      (gradient * gradient) * (1 - beta2)
+    local corrected_first = first_moment / (1 - beta1 ^ step)
+    local corrected_second = second_moment / (1 - beta2 ^ step)
+    reference = reference -
+      (corrected_first / (corrected_second:sqrt() + eps)) * lr
+  end
+
+  assert_true(parameter:allclose(reference, 1e-5, 1e-6))
+  local state = optimizer.state[parameter]
+  assert_true(state.exp_avg:allclose(first_moment, 1e-5, 1e-6))
+  assert_true(state.exp_avg_sq:allclose(second_moment, 1e-5, 1e-6))
+end)
+
+test("fused SGD momentum and nesterov match the equations", function()
+  local parameter = torch.tensor({ 1.0, 2.0 }, { requires_grad = true })
+  local optimizer = optim.SGD({ parameter },
+    { lr = 0.1, momentum = 0.9, nesterov = true })
+
+  parameter:sum():backward()
+  optimizer:step()
+  -- buffer = grad = 1; update = grad + momentum * buffer = 1.9
+  assert_near(parameter:totable(), { 0.81, 1.81 }, 1e-6)
+  local state = optimizer.state[parameter]
+  assert_near(state.momentum_buffer:totable(), { 1, 1 }, 1e-6)
+
+  optimizer:zero_grad()
+  parameter:sum():backward()
+  optimizer:step()
+  -- buffer = 0.9 * 1 + 1 * 1 = 1.9; update = 1 + 0.9 * 1.9 = 2.71
+  assert_near(parameter:totable(), { 0.539, 1.539 }, 1e-6)
+end)
+
+test("fused SGD dampening", function()
+  local parameter = torch.tensor({ 1.0 }, { requires_grad = true })
+  local optimizer = optim.SGD({ parameter },
+    { lr = 0.1, momentum = 0.9, dampening = 0.5 })
+  parameter:sum():backward()
+  optimizer:step()
+  assert_near(parameter:totable()[1], 0.9, 1e-6)
+  optimizer:zero_grad()
+  parameter:sum():backward()
+  optimizer:step()
+  -- buffer = 0.9 * 1 + 0.5 * 1 = 1.4
+  assert_near(parameter:totable()[1], 0.76, 1e-6)
+end)
+
+test("fused optimizers reject non-contiguous parameters", function()
+  local parameter = torch.zeros(2, 2):t()
+  parameter:requires_grad_(true)
+  local optimizer = optim.SGD({ parameter }, { lr = 0.1 })
+  parameter:sum():backward()
+  assert_error(function()
+    optimizer:step()
+  end, "contiguous")
+end)

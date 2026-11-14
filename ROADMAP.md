@@ -17,7 +17,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
-- [x] 229-test suite, benchmarks, API/design docs
+- [x] 233-test suite, benchmarks, API/design docs
 - [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
 ## v0.2 — neural networks (done)
@@ -69,12 +69,13 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] External-memory-aware GC (64 MB threshold) to fix out-of-place allocation
 - [x] Fallback to eager for unsupported ops, broadcasting, and autograd
 - [x] Head-to-head benchmark harness against PyTorch eager and `torch.compile`
-- [x] 10.5x vs eager and ~1.05x vs `torch.compile` on `(a*b+c):relu()` (1M)
+- [x] 5.4x vs eager and ~1.0x vs `torch.compile` on `(a*b+c):relu()` (1M)
 - [ ] Fused reductions: `sum`, `mean`, `mse`, `logsumexp`
 - [ ] Fused backward/autograd for elementwise expressions
 - [ ] Automatic tracing of ordinary operator code (lazy tensors)
 - [ ] Linear/conv epilogue fusion (`x@W + b`, bias+activation)
 - [ ] Vectorised transcendentals (libmvec or polynomial approximations)
+- [x] Fused Adam/AdamW/SGD update kernels (5x optimizer step, 1.3x train step)
 - [ ] Multi-output fusion and in-place fused kernels
 
 ## v0.5 — the Torch7 stack

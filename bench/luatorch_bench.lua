@@ -14,6 +14,8 @@ local function now()
 end
 
 local torch = require("torch")
+local nn = require("torch.nn")
+local optim = require("torch.optim")
 torch.set_num_threads(1)
 torch.manual_seed(0)
 
@@ -79,6 +81,43 @@ end)
 best("tiny_chain", 20000, function()
   local result = (tiny * tiny_b + tiny_c):relu()
 end)
+
+-- MLP training -------------------------------------------------------------
+local mlp = nn.Sequential(
+  nn.Linear(784, 256), nn.ReLU(), nn.Linear(256, 10))
+local mlp_criterion = nn.CrossEntropyLoss()
+local mlp_optimizer = optim.Adam(mlp:parameters(), { lr = 1e-3 })
+local mlp_inputs = torch.randn(128, 784)
+local mlp_labels = torch.LongTensor(128):fill_(1)
+
+local function mlp_forward()
+  return mlp(mlp_inputs)
+end
+
+local function mlp_forward_backward()
+  local loss = mlp_criterion(mlp(mlp_inputs), mlp_labels)
+  mlp_optimizer:zero_grad()
+  loss:backward()
+end
+
+local function mlp_step()
+  local loss = mlp_criterion(mlp(mlp_inputs), mlp_labels)
+  mlp_optimizer:zero_grad()
+  loss:backward()
+  mlp_optimizer:step()
+end
+
+for _ = 1, 3 do
+  mlp_forward_backward()
+  mlp_optimizer:step()
+end
+
+best("mlp_forward", 50, mlp_forward)
+best("mlp_forward_backward", 50, mlp_forward_backward)
+best("mlp_adam_step", 50, function()
+  mlp_optimizer:step()
+end)
+best("mlp_train_step", 50, mlp_step)
 
 -- Fusion ------------------------------------------------------------------
 local fused_chain = torch.fuse(function(p, q, r)

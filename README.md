@@ -34,40 +34,45 @@ Best-of-30 microbenchmarks from `scripts/compare.sh --compile` on an 8-core
 Ryzen 3 machine. Eager and compiled PyTorch are shown separately because
 `torch.compile` also fuses.
 
-| Workload (1M floats unless noted) | luatorch | torch eager | speedup | torch.compile | speedup |
+| Workload | luatorch | torch eager | speedup | torch.compile | speedup |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `add` (out-of-place) | 0.84 ms | 0.78 ms | **0.93x** | — | — |
-| `add_` (in-place) | 0.52 ms | 0.55 ms | **1.06x** | — | — |
-| `a*b+c` | 1.60 ms | 7.13 ms | **4.45x** | — | — |
-| `(a*b+c):relu()` eager | 2.30 ms | 10.56 ms | **4.60x** | 1.05 ms | 0.46x |
-| `(a*b+c):relu()` **fused, into** | **1.00 ms** | 10.56 ms | **10.5x** | 1.05 ms | **1.05x** |
-| `(a*b+c):relu()` **fused, alloc** | **1.01 ms** | 10.56 ms | **10.4x** | 1.05 ms | **1.04x** |
-| `sum` | 0.10 ms | 0.15 ms | **1.44x** | — | — |
-| `exp` | 3.02 ms | 3.04 ms | **1.01x** | — | — |
-| `matmul 512` | 7.91 ms | 7.54 ms | **0.95x** | — | — |
-| tiny add (16) | 0.002 ms | 0.003 ms | **1.48x** | — | — |
-| tiny chain (16) | 0.006 ms | 0.007 ms | **1.20x** | — | — |
-| tiny chain fused (16) | 0.007 ms | 0.007 ms | **1.03x** | — | — |
+| `add` 1M, out-of-place | 0.81 ms | 0.83 ms | **1.03x** | — | — |
+| `add_` 1M, in-place | 0.55 ms | 0.55 ms | **1.00x** | — | — |
+| `a*b+c` 1M | 1.57 ms | 4.78 ms | **3.05x** | — | — |
+| `(a*b+c):relu()` 1M eager | 2.17 ms | 5.53 ms | **2.55x** | 1.05 ms | 0.48x |
+| `(a*b+c):relu()` **fused, into** | **1.09 ms** | 5.53 ms | **5.07x** | 1.05 ms | 0.96x |
+| `(a*b+c):relu()` **fused, alloc** | **1.03 ms** | 5.53 ms | **5.36x** | 1.05 ms | **1.01x** |
+| `sum` 1M | 0.11 ms | 0.14 ms | **1.20x** | — | — |
+| `exp` 1M | 3.02 ms | 3.02 ms | **1.00x** | — | — |
+| `matmul 512` | 7.66 ms | 7.67 ms | **1.00x** | — | — |
+| tiny add (16) | 0.002 ms | 0.003 ms | **1.43x** | — | — |
+| tiny chain (16) | 0.006 ms | 0.007 ms | **1.16x** | — | — |
+| tiny chain fused (16) | 0.006 ms | 0.007 ms | **1.25x** | — | — |
+| MLP forward 128×784 | 1.55 ms | 1.53 ms | **0.99x** | — | — |
+| MLP forward+backward | 3.60 ms | 3.62 ms | **1.01x** | — | — |
+| **MLP Adam step** | **0.224 ms** | 1.137 ms | **5.08x** | — | — |
+| **MLP train step** | **3.97 ms** | 5.12 ms | **1.29x** | — | — |
 
 What the table actually says:
 
-- **Fused chains are the win:** 10.5x over eager PyTorch, and slightly ahead of
-  `torch.compile` on this machine (both are around 1 ms; treat the 5% as noise).
-- **Single out-of-place ops are not a win** (0.93x). PyTorch's refcounted free
-  is still better than LuaJIT's GC for one allocation; use in-place ops or
-  `fused:into` on hot paths.
-- **GEMM ties** (0.95x) because both call the same BLAS-class kernels. We do not
-  pretend to beat ATen at matrix multiplication.
-- **Small tensors** are 1.2–1.5x faster thanks to lower dispatch overhead.
+- **Fused elementwise chains** are 2.5–5.4x faster than eager and around parity
+  with `torch.compile` on this machine (0.96–1.01x; treat a few percent as
+  noise).
+- **Optimizer updates are a clear win:** fusing Adam's update into one C kernel
+  makes the optimizer step **5.1x faster** than PyTorch's optimizer, which lifts
+  the whole MLP training step to **1.29x**.
+- **Single additions and GEMM are parity-to-tie.** GEMM uses the same BLAS-class
+  kernels; single out-of-place adds are dominated by allocation/free behavior.
+- **Small tensors** are 1.1–1.4x faster thanks to lower dispatch overhead.
 - Benchmark variance is real: this CPU throttles under sustained load. The
   harness uses best-of-N and one thread; rerun it for your machine.
 
 ## Status
 
-> **0.4.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
-> data loading, sorting/linalg, and the fusion JIT are implemented and covered
-> by **229 tests**. CUDA, fused reductions/backprop, and more `nn` layers are
-> next (see [ROADMAP.md](ROADMAP.md)).
+> **0.4.1 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> data loading, sorting/linalg, the fusion JIT, and fused optimizer updates are
+> implemented and covered by **233 tests**. CUDA, fused reductions/backprop,
+> and more `nn` layers are next (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -133,7 +138,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 229 tests
+scripts/test.sh               # 233 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -173,7 +178,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, `torch.linalg.*` |
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
 | Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
-| Optimizers | SGD, Adam, AdamW, RMSprop, Adagrad, clipping, LR schedulers |
+| Optimizers | SGD/Adam/AdamW fused update kernels, RMSprop, Adagrad, clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, shuffling |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
 | Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, compile cache |

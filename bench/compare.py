@@ -79,6 +79,36 @@ def run_pytorch(compile_chain):
     y = torch.randn(512, 512)
     results["matmul512"] = best_of(5, lambda: x @ y)
 
+    import torch.nn as nn
+    model = nn.Sequential(nn.Linear(784, 256), nn.ReLU(), nn.Linear(256, 10))
+    criterion = nn.CrossEntropyLoss()
+    mlp_optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    batch = torch.randn(128, 784)
+    labels = torch.ones(128, dtype=torch.long)
+
+    def mlp_forward():
+        return model(batch)
+
+    def mlp_forward_backward():
+        loss = criterion(model(batch), labels)
+        mlp_optimizer.zero_grad()
+        loss.backward()
+
+    def mlp_step():
+        loss = criterion(model(batch), labels)
+        mlp_optimizer.zero_grad()
+        loss.backward()
+        mlp_optimizer.step()
+
+    for _ in range(3):
+        mlp_forward_backward()
+        mlp_optimizer.step()
+
+    results["mlp_forward"] = best_of(50, mlp_forward)
+    results["mlp_forward_backward"] = best_of(50, mlp_forward_backward)
+    results["mlp_adam_step"] = best_of(50, mlp_optimizer.step)
+    results["mlp_train_step"] = best_of(50, mlp_step)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -110,6 +140,10 @@ def print_table(lua, torch_results, compiled):
         ("tiny add (16)", "tiny_add", "tiny_add", None),
         ("tiny chain (16)", "tiny_chain", "tiny_chain", None),
         ("tiny chain fused (16)", "tiny_chain_fused", "tiny_chain", None),
+        ("MLP forward 128x784", "mlp_forward", "mlp_forward", None),
+        ("MLP forward+backward", "mlp_forward_backward", "mlp_forward_backward", None),
+        ("MLP Adam step", "mlp_adam_step", "mlp_adam_step", None),
+        ("MLP train step", "mlp_train_step", "mlp_train_step", None),
     ]
 
     header = f"{'workload':34s} {'luatorch':>10s} {'torch eager':>12s} {'speedup':>9s}"
