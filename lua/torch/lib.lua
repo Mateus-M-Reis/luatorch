@@ -14,6 +14,7 @@ typedef struct lt_tensor lt_tensor;
 const char* lt_version(void);
 const char* lt_last_error(void);
 void        lt_free(lt_tensor* t);
+int64_t     lt_free_counted(lt_tensor* t);
 
 /* creation */
 lt_tensor* lt_zeros(int64_t ndim, const int64_t* sizes, int dtype);

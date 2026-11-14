@@ -1,27 +1,73 @@
 # luatorch
 
-**LuaJIT bindings for PyTorch's ATen — Torch7 ergonomics on a modern tensor engine.**
+**A LuaJIT tensor engine with a fusion compiler — PyTorch-class speed with Torch7 ergonomics.**
 
-Torch7 was a wonderful way to do numerical computing in Lua, but it stopped in
-2018. PyTorch kept going, and its C++ core (`libtorch` / ATen) is now a fast,
-well-tested tensor library. `luatorch` reconnects the two:
+Torch7 stopped in 2018. PyTorch kept going, but its eager Python API pays for
+every operator with dispatch, temporary allocations, and interpreter overhead.
+`luatorch` keeps PyTorch's battle-tested ATen kernels and BLAS underneath, then
+adds the part Python does not give you cheaply: **a tracing fusion compiler for
+LuaJIT**.
 
-- native `at::Tensor` objects behind a small stable C ABI, loaded through LuaJIT FFI
-- Torch7-style Lua ergonomics (1-based dimensions and indices, `narrow`, `select`,
-  `:t()`, `torch.Tensor{...}`, `:add_` in-place methods)
-- PyTorch semantics for gradients, dtypes, broadcasting, and serialization
-- **luafun** (`fun.lua`) as the functional core — no Moses dependency
-- autograd, dtype casts, Boolean masking, and PyTorch-compatible `.pt` files
-- **`torch.nn`** (Linear, Conv2d, pooling, BatchNorm, Dropout, losses, containers)
-  and **`torch.optim`** (SGD, Adam, RMSprop, Adagrad)
+```lua
+local torch = require("torch")
 
-> Status: **0.3.0 alpha**, CPU build. Core tensors, autograd, I/O, the luafun
-> bridge, `nn`/`optim`, data loading, sorting/selection, basic linear algebra and
-> random distributions are implemented and covered by **215 tests**. CUDA, more
-> datasets, and the long tail of ATen operators are next
-> (see [ROADMAP.md](ROADMAP.md)).
+local fused = torch.fuse(function(a, b, c)
+  return (a * b + c):relu()
+end)
 
----
+local out = fused(a, b, c)          -- one vectorized kernel, no temporaries
+fused:into(buffer, a, b, c)         -- zero-allocation variant
+```
+
+This is not a thin wrapper around PyTorch. The execution layer:
+
+- traces elementwise tensor expressions and compiles them to **one C kernel**
+  (or a LuaJIT loop when no C compiler is available),
+- eliminates intermediate tensors and memory traffic,
+- accounts for C++ tensor memory so LuaJIT's GC does not let results pile up,
+- exposes reusable output buffers (`fused:into`) and in-place ops,
+- falls back to eager ATen when an expression cannot be fused.
+
+## Measured against PyTorch 2.15 (CPU, 1 thread)
+
+Best-of-30 microbenchmarks from `scripts/compare.sh --compile` on an 8-core
+Ryzen 3 machine. Eager and compiled PyTorch are shown separately because
+`torch.compile` also fuses.
+
+| Workload (1M floats unless noted) | luatorch | torch eager | speedup | torch.compile | speedup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `add` (out-of-place) | 0.84 ms | 0.78 ms | **0.93x** | — | — |
+| `add_` (in-place) | 0.52 ms | 0.55 ms | **1.06x** | — | — |
+| `a*b+c` | 1.60 ms | 7.13 ms | **4.45x** | — | — |
+| `(a*b+c):relu()` eager | 2.30 ms | 10.56 ms | **4.60x** | 1.05 ms | 0.46x |
+| `(a*b+c):relu()` **fused, into** | **1.00 ms** | 10.56 ms | **10.5x** | 1.05 ms | **1.05x** |
+| `(a*b+c):relu()` **fused, alloc** | **1.01 ms** | 10.56 ms | **10.4x** | 1.05 ms | **1.04x** |
+| `sum` | 0.10 ms | 0.15 ms | **1.44x** | — | — |
+| `exp` | 3.02 ms | 3.04 ms | **1.01x** | — | — |
+| `matmul 512` | 7.91 ms | 7.54 ms | **0.95x** | — | — |
+| tiny add (16) | 0.002 ms | 0.003 ms | **1.48x** | — | — |
+| tiny chain (16) | 0.006 ms | 0.007 ms | **1.20x** | — | — |
+| tiny chain fused (16) | 0.007 ms | 0.007 ms | **1.03x** | — | — |
+
+What the table actually says:
+
+- **Fused chains are the win:** 10.5x over eager PyTorch, and slightly ahead of
+  `torch.compile` on this machine (both are around 1 ms; treat the 5% as noise).
+- **Single out-of-place ops are not a win** (0.93x). PyTorch's refcounted free
+  is still better than LuaJIT's GC for one allocation; use in-place ops or
+  `fused:into` on hot paths.
+- **GEMM ties** (0.95x) because both call the same BLAS-class kernels. We do not
+  pretend to beat ATen at matrix multiplication.
+- **Small tensors** are 1.2–1.5x faster thanks to lower dispatch overhead.
+- Benchmark variance is real: this CPU throttles under sustained load. The
+  harness uses best-of-N and one thread; rerun it for your machine.
+
+## Status
+
+> **0.4.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> data loading, sorting/linalg, and the fusion JIT are implemented and covered
+> by **229 tests**. CUDA, fused reductions/backprop, and more `nn` layers are
+> next (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -36,178 +82,152 @@ print(x)
 local w = torch.tensor({1, 2, 3}, {requires_grad = true})
 local loss = (w * w):sum()
 loss:backward()
-print(w:grad())
--- tensor([2., 4., 6.])
+print(w:grad())                    -- tensor([2., 4., 6.])
 
-local mask = w:gt(1)
-print(w[mask])              -- tensor([2., 3.])
-print((w + 1):sqrt():mean())
+print(torch.arange(10):filter(function(v) return v % 2 == 0 end))
 ```
 
-Functional pipelines use **luafun** directly, or through the tensor bridge:
+Training is PyTorch-shaped, with Lua conventions:
 
 ```lua
-local fun = require("fun")          -- == torch.fun
+local nn = require("torch.nn")
+local optim = require("torch.optim")
+local data = require("torch.utils.data")
 
+local model = nn.Sequential(nn.Linear(2, 32), nn.ReLU(), nn.Linear(32, 3))
+local criterion = nn.CrossEntropyLoss()
+local optimizer = optim.Adam(model:parameters(), {lr = 0.01})
+local loader = data.DataLoader(
+  data.TensorDataset(inputs, labels), {batch_size = 64, shuffle = true})
+
+for epoch = 1, 50 do
+  for batch_inputs, batch_labels in loader:iter() do
+    local loss = criterion(model(batch_inputs), batch_labels)
+    optimizer:zero_grad()
+    loss:backward()
+    optimizer:step()
+  end
+end
+```
+
+Functional pipelines use **luafun** (no Moses):
+
+```lua
+local fun = require("fun")        -- == torch.fun
 local squares = fun.totable(fun.iter({1, 2, 3, 4})
   :map(function(x) return x * x end)
   :filter(function(x) return x % 2 == 0 end))
 -- {4, 16}
 
-local data = torch.randn(1000000)
-local total = 0
-for value in data:iter() do total = total + value end
-
-local doubled = torch.randn(4, 4):map(function(x) return 2 * x end)
-local evens   = torch.arange(10):filter(function(x) return x % 2 == 0 end)
-```
-
-## Train a model
-
-```lua
-local nn = require("torch.nn")
-local optim = require("torch.optim")
-
-local model = nn.Sequential(
-  nn.Linear(2, 32), nn.ReLU(),
-  nn.Linear(32, 3))
-local criterion = nn.CrossEntropyLoss()
-local optimizer = optim.Adam(model:parameters(), {lr = 0.01})
-
-for epoch = 1, 300 do
-  local loss = criterion(model(inputs), labels)
-  optimizer:zero_grad()
-  loss:backward()
-  optimizer:step()
+for value in torch.randn(1000000):iter() do
+  -- iterate without materialising a Lua table
 end
-
-model:eval()
-local predicted = model(inputs):argmax(2)   -- 1-based class labels
 ```
-
-See [docs/nn.md](docs/nn.md) for modules, losses, optimizers, and the full
-training recipe. Runnable examples live in `examples/`:
-
-- `linear_regression.lua` — autograd and scalar parameters
-- `mlp_classification.lua` — 3-class MLP with Adam
-- `mlp_dataloader.lua` — mini-batch training with TensorDataset/DataLoader
-- `cnn_classification.lua` — convolution + pooling on synthetic images
-- `luafun_pipeline.lua` — functional pipelines over tables and tensors
 
 ## Build
 
 Requirements: Linux/macOS, CMake ≥ 3.18, Ninja or Make, a C++17 compiler,
-LuaJIT 2.1 (with headers), `curl`, `unzip`. The native shim links against the
-official prebuilt **libtorch** (CPU, C++11 ABI, 2.5.1).
+LuaJIT 2.1 with headers, `curl`, `unzip`. A C compiler (`gcc`) is needed for the
+fast fusion backend; without it, fusion falls back to LuaJIT loops.
 
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 215 tests
+scripts/test.sh               # 229 tests
 scripts/bench.sh              # micro-benchmarks
-scripts/repl.sh               # interactive REPL with torch preloaded
+scripts/repl.sh               # interactive REPL
 ```
 
-Or via Make: `make build`, `make test`, `make bench`, `make repl`.
+Or `make build`, `make test`, `make bench`, `make repl`.
 
-If you already have libtorch installed, skip the download:
+If libtorch is already installed: `Torch_DIR=/path/to/libtorch/cmake scripts/build.sh`.
 
-```bash
-Torch_DIR=/path/to/libtorch/share/cmake/Torch scripts/build.sh
-```
-
-Install the Lua sources and the shim side by side:
+Install:
 
 ```bash
 cmake --install build --prefix "$HOME/.local"
-# then LUA_PATH="$HOME/.local/share/lua/5.1/?.lua;$HOME/.local/share/lua/5.1/?/init.lua;;"
+export LUA_PATH="$HOME/.local/share/lua/5.1/?.lua;$HOME/.local/share/lua/5.1/?/init.lua;;"
 ```
+
+### Reproduce the PyTorch comparison
+
+```bash
+uv venv .venv-bench --python 3.12
+uv pip install --python .venv-bench/bin/python torch \
+  --index-url https://download.pytorch.org/whl/cpu
+./scripts/compare.sh --compile
+```
+
+The fusion C cache lives in `.luatorch-cache/` (override with
+`LUATORCH_CACHE`). Set `LUATORCH_FUSE_BACKEND=lua` to force the portable
+LuaJIT backend; `gcc` unavailable → automatic fallback.
 
 ## What is implemented
 
 | Area | Covered |
 | --- | --- |
 | Creation | `tensor`, `zeros`, `ones`, `empty`, `full`, `rand`, `randn`, `randperm`, `eye`, `arange`, `linspace`, `*_like` |
-| Dtypes | float32/float64/float16, int8/16/32/64, uint8, bool, `.to()`, Torch7 typed constructors |
-| Math | elementwise `+ - * / ^ %`, `maximum/minimum`, broadcasting, ~25 unary ops, `matmul/mm/bmm/dot`, `mv`, `outer`, `addmm`, `baddbmm`, comparisons, `where`, `masked_fill`, `masked_select` |
-| Sorting | `sort`, `topk`, `unique` (values/inverse/counts), `nonzero`, `gather`, `scatter` |
-| Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, plus `torch.linalg.*` aliases |
-| Random | `normal_`, `exponential_`, `bernoulli_`, `multinomial` |
-| Threading | `torch.get_num_threads` / `torch.set_num_threads` |
-| Shape | `reshape`, `view`, `transpose`, `t`, `permute`, `squeeze`, `unsqueeze`, `flatten`, `expand`, `cat`, `stack`, `slice`, `narrow`, `select`, `flip`, `index_select` |
-| Reductions | `sum`, `mean`, `prod`, `max/min` (+ indices), `argmax/argmin`, `var/std`, `norm`, `cumsum/cumprod`, `all/any`, dims and `keepdim` |
-| Autograd | `requires_grad`, `backward`, `grad`, `detach`, `zero_grad`, `no_grad`, `set_grad_enabled` |
-| I/O | `torch.save`/`torch.load` using the PyTorch zip archive format; `model:save`/`model:load` for state dictionaries |
-| Functional | `Tensor:iter/map/filter/reduce/apply`, `Tensor:fun()`, and the vendored luafun |
-| Neural nets | `nn.Linear`, `Conv2d`, `MaxPool2d`, `AvgPool2d`, `AdaptiveAvgPool2d`, `BatchNorm2d`, `LayerNorm`, `Embedding`, `Dropout`, `ReLU`/`LeakyReLU`/`Sigmoid`/`Tanh`, `Softmax`/`LogSoftmax`, `Flatten`, `Sequential`, `ModuleList`, MSE/L1/CrossEntropy/NLL/BCE losses |
-| Data | `TensorDataset`, `DataLoader` with batching, shuffling and `drop_last`; custom `Dataset` protocol |
-| Optimizers | `SGD` (momentum, nesterov, weight decay), `Adam`, `AdamW`, `RMSprop`, `Adagrad`, gradient clipping, Step/MultiStep/Exponential/Cosine/Lambda LR schedulers |
-| Print | PyTorch-style `tensor([...])`, dtype and `requires_grad` annotations |
+| Dtypes | float32/64/16, int8/16/32/64, uint8, bool; Torch7 typed constructors |
+| Math | `+ - * / ^ %`, broadcasting, ~25 unary ops, `matmul/mm/bmm/dot`, `mv`, `outer`, `addmm`, `baddbmm`, comparisons, `where`, masks |
+| Sorting | `sort`, `topk`, `unique`, `nonzero`, `gather`, `scatter` |
+| Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, `torch.linalg.*` |
+| Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
+| Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
+| Optimizers | SGD, Adam, AdamW, RMSprop, Adagrad, clipping, LR schedulers |
+| Data | TensorDataset, DataLoader, custom datasets, shuffling |
+| I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
+| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, compile cache |
+| Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
 
-## Deliberate design choices
+## How the fusion engine works
 
-- **1-based Lua surface.** Dimensions and indices are 1-based (`t:select(2, -1)`),
-  matching Torch7. Reductions such as `argmax` also return 1-based indices.
-  Native ATen stays 0-based behind the boundary.
-- **Lua numbers are float32 tensors by default.** Lua cannot distinguish `1` from
-  `1.0`, so table/scalar inference chooses float32 (the PyTorch default). Integer
-  tensors are explicit: `torch.tensor({1, 2}, {dtype = torch.int64})` or
-  `torch.LongTensor{1, 2}`.
-- **Out-of-place by default.** `t:add(x)` returns a new tensor; `t:add_(x)` mutates
-  and returns `t`. This mirrors PyTorch and keeps autograd tractable.
-- **No Moses.** luafun is lazy, LuaJIT-friendly, MIT-licensed, and vendored as a
-  single file (`lua/fun.lua`). See [docs/torch7-compat.md](docs/torch7-compat.md)
-  for the Moses → luafun mapping.
-- **Small C ABI.** Lua never touches C++ types directly. Every operation is a
-  plain C function returning an opaque pointer; errors travel through a
-  thread-local message. This keeps FFI fast and crash-resistant.
-- **1-based class labels.** `argmax` and the classification losses agree on
-  1..C labels, matching Torch7's `ClassNLLCriterion`; ATen sees 0-based targets.
-- **Modules are autograd-friendly Lua objects.** They implement `forward` only;
-  calling `loss:backward()` builds the graph through the tensor operations.
+1. `torch.fuse(fn)` traces `fn` with symbolic tensors, building an elementwise
+   expression tree.
+2. The tree is emitted as a C translation unit and compiled with
+   `gcc -O3 -march=native -fopenmp` (cached by source hash), or as a LuaJIT
+   loop if C compilation is unavailable.
+3. Tensor inputs are made contiguous, output is allocated (or supplied via
+   `into`), and one kernel reads all inputs and writes the result once.
+4. Any unsupported operation, shape mismatch, or autograd input falls back to
+   eager ATen, so correctness never depends on the tracer.
+
+See [docs/fusion.md](docs/fusion.md) for the API, supported operations, cache
+and fallback rules.
+
+## Design choices
+
+- **1-based Lua surface.** Dimensions, indices, sort/topk indices, gather/scatter
+  indices, argmax and class labels are 1-based; ATen sees 0-based values behind
+  the FFI boundary.
+- **Libtorch is the kernel library, not the architecture.** Large GEMMs and
+  convolutions use ATen; elementwise chains are fused by us.
+- **In-place and `into` are first-class.** They avoid allocation and LuaJIT GC
+  pressure. Out-of-place remains the default for readability.
+- **External-memory-aware GC.** Tensor bytes are tracked; a full collection is
+  forced around a 64 MB threshold so C++ storage does not pile up. This single
+  change took 1M out-of-place adds from ~3 ms to ~0.85 ms.
+- **No Moses.** luafun is vendored as a single MIT file.
 
 ## Documentation
 
-- [docs/api.md](docs/api.md) — the full Lua API
-- [docs/design.md](docs/design.md) — architecture, memory, and error handling
-- [docs/nn.md](docs/nn.md) — `torch.nn` modules, losses, optimizers, training loops
-- [docs/torch7-compat.md](docs/torch7-compat.md) — Torch7 ⇄ luatorch mapping, Moses → luafun
-- [ROADMAP.md](ROADMAP.md) — where this is going
+- [docs/fusion.md](docs/fusion.md) — fusion API, codegen, benchmark methodology
+- [docs/api.md](docs/api.md) — full Lua API
+- [docs/nn.md](docs/nn.md) — modules, losses, optimizers, data loading
+- [docs/design.md](docs/design.md) — architecture and internals
+- [docs/torch7-compat.md](docs/torch7-compat.md) — Torch7 ⇄ luatorch, Moses → luafun
+- [ROADMAP.md](ROADMAP.md)
 
-## Performance snapshot
+## Honest limitations
 
-Measured on an 8-core x86-64 CPU with the bundled CPU libtorch (median of
-repeats, `scripts/bench.sh`):
-
-| Workload | Result |
-| --- | --- |
-| add, 1M float32 tensors | ~4.3 ms (≈2.8 GB/s effective, single stream) |
-| sum, 1M float32 | ~0.06 ms |
-| matmul 512×512 float32 | ~11.9 ms (≈22.6 GFLOP/s) |
-| matmul 128×128 float32 | ~0.06 ms |
-| sort, 1M float32 | ~260 ms |
-| topk, 1M float32, k=10 | ~8 ms |
-| SVD 128×128 float32 | ~12 ms |
-| small tensor add (16 elements) | ~3 µs per call round-trip |
-| luafun map+reduce over 200k | ~2.0 ms (plain Lua loop ~0.26 ms) |
-| luafun map+filter+reduce vs Moses, 200k | ~1.0 ms vs ~5.0 ms (≈5×) |
-| MLP (784→256→10) forward, batch 128 | ~3.7 ms |
-| MLP forward + backward, batch 128 | ~7.8 ms |
-| MLP forward + backward + Adam step | ~16.4 ms |
-| ConvNet forward, 8×3×32×32 | ~4.2 ms |
-| `torch.load` 100k float32 | ~0.2 ms |
-
-The dispatch overhead is a few microseconds; real workloads are dominated by
-ATen kernels. luafun is lazy and allocation-light, but a hand-written loop over
-a flat Lua table is still the fastest option for element-by-element work — use
-tensor ops when you can.
+- Fusion currently handles **elementwise expressions** only; reductions
+  (`sum`, `mse`), softmax, and backward passes are not fused yet.
+- Fused outputs are inference-only: inputs that require grad fall back to eager.
+- Fusion requires equal shapes (broadcasting falls back).
+- We beat eager PyTorch on chains and small ops; we tie on GEMM and slightly
+  lose on single out-of-place ops. Those are architectural facts, not bugs.
+- No CUDA, no built-in datasets, no PyTorch state-dict interop yet.
 
 ## Credits
 
-- [PyTorch](https://pytorch.org) / ATen — BSD-style license.
-- [LuaJIT](https://luajit.org) — MIT.
-- [luafun](https://github.com/rtsisyk/luafun) by Roman Tsisyk — MIT.
-- [Torch7](https://github.com/torch/torch7) — the ergonomics this project borrows
-  and the community that made it fun.
-
-See [LICENSE](LICENSE).
+PyTorch/ATen (BSD), LuaJIT (MIT), luafun by Roman Tsisyk (MIT), and Torch7 for
+the ergonomics and the fun. See [LICENSE](LICENSE).

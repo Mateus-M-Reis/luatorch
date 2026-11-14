@@ -1,7 +1,9 @@
 # luatorch roadmap
 
-The project's goal is a Torch7-class Lua tensor stack on top of PyTorch's ATen:
-fast, scriptable, and pleasant for research code. This roadmap is intentionally
+The project's goal is a Torch7-class Lua tensor stack that is faster than eager
+PyTorch where execution strategy matters: fused elementwise kernels, low
+dispatch overhead, and explicit memory management, using ATen for the heavy
+BLAS/conv kernels. This roadmap is intentionally
 concrete: each milestone should leave `scripts/test.sh` green and documented.
 
 ## v0.1 — tensor foundation (done)
@@ -15,7 +17,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
-- [x] 215-test suite, benchmarks, API/design docs
+- [x] 229-test suite, benchmarks, API/design docs
 - [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
 ## v0.2 — neural networks (done)
@@ -39,7 +41,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [ ] Loss options: class weights, `ignore_index`, label smoothing
 - [ ] Optimizer extras: AMSGrad, `ReduceLROnPlateau`, per-parameter groups
 
-## v0.3 — tensor completeness (current)
+## v0.3 — tensor completeness (partial)
 
 - [x] `gather`, `scatter`, `nonzero` (1-based coordinates), `index_select`
 - [ ] Richer indexing: tensor-of-indices ranges, `index_put_`,
@@ -58,7 +60,24 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Thread-count control (`torch.set_num_threads`)
 - [ ] `float16` creation from Lua values and printing parity
 
-## v0.4 — the Torch7 stack
+## v0.4 — fused execution (current)
+
+- [x] Trace elementwise functions into an expression tree
+- [x] LuaJIT codegen backend for float32/float64
+- [x] C codegen backend, `gcc -O3 -march=native -fopenmp`, on-disk kernel cache
+- [x] `fused:into` output buffers; scalar arguments as runtime values
+- [x] External-memory-aware GC (64 MB threshold) to fix out-of-place allocation
+- [x] Fallback to eager for unsupported ops, broadcasting, and autograd
+- [x] Head-to-head benchmark harness against PyTorch eager and `torch.compile`
+- [x] 10.5x vs eager and ~1.05x vs `torch.compile` on `(a*b+c):relu()` (1M)
+- [ ] Fused reductions: `sum`, `mean`, `mse`, `logsumexp`
+- [ ] Fused backward/autograd for elementwise expressions
+- [ ] Automatic tracing of ordinary operator code (lazy tensors)
+- [ ] Linear/conv epilogue fusion (`x@W + b`, bias+activation)
+- [ ] Vectorised transcendentals (libmvec or polynomial approximations)
+- [ ] Multi-output fusion and in-place fused kernels
+
+## v0.5 — the Torch7 stack
 
 - [x] `torch.nn` layers, losses, containers, functional forms, parameter iteration
 - [x] `torch.optim`: SGD, momentum, Adam, RMSprop, Adagrad
@@ -68,7 +87,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [ ] PyTorch state-dict interop
 - [ ] `luatorch` rockspec and system installation
 
-## v0.5 — performance and ergonomics
+## v0.6 — performance and ergonomics
 
 - [ ] Zero-copy tensor views where safe; avoid redundant `contiguous()` calls
 - [ ] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers
@@ -96,7 +115,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 
 ## How to help
 
-Pick a v0.3 operator or a v0.2 layer, follow the six-step checklist in
-[docs/design.md](docs/design.md#adding-an-operator), and include value, shape,
-dtype, and error-path tests. Benchmarks and compatibility notes are as valuable
+Pick a v0.3 operator, a v0.2 layer, or a v0.4 fusion target. New fusion
+features should include a correctness test, a fallback test, and a benchmark
+entry in `bench/compare.py`. Benchmarks and compatibility notes are as valuable
 as new ops.

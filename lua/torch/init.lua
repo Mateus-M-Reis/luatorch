@@ -17,15 +17,17 @@ local libmod = require("torch.lib")
 local ffi = libmod.ffi
 local lib = libmod.lib
 local Tensor = require("torch.tensor")
+local fuse = require("torch.fuse")
 local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.3.0"
+torch.VERSION = "0.4.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
 torch.is_tensor = Tensor.is_tensor
+torch.fuse = fuse
 torch.ALL_DIMS = Tensor.ALL_DIMS
 torch.fun = fun
 torch.luafun = fun

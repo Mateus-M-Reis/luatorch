@@ -66,11 +66,30 @@ local function check(status)
   end
 end
 
+-- LuaJIT's GC does not know how much memory lives on the C++ side.  Without
+-- accounting, out-of-place results pile up until a Lua-triggered collection and
+-- C++ allocations become several times slower than PyTorch's refcounted free.
+-- Track tensor bytes and force a full collection at a configurable threshold.
+local external_bytes = 0
+local gc_threshold = tonumber(os.getenv("LUATORCH_GC_THRESHOLD_MB") or "64") * 1024 * 1024
+
+local function release(pointer)
+  -- Do not call metadata helpers here: they clear the thread-local error
+  -- message, and finalizers can run inside ffi.string() while Lua is trying to
+  -- read that message.
+  external_bytes = external_bytes - tonumber(lib.lt_free_counted(pointer))
+end
+
 local function wrap(pointer)
   if pointer == nil then
     error(last_error(), 3)
   end
-  return setmetatable({ h = ffi.gc(pointer, lib.lt_free) }, mt)
+  external_bytes = external_bytes + tonumber(lib.lt_nbytes(pointer))
+  local handle = ffi.gc(pointer, release)
+  if external_bytes > gc_threshold then
+    collectgarbage("collect")
+  end
+  return setmetatable({ h = handle }, mt)
 end
 
 local function is_tensor(value)

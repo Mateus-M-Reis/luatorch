@@ -23,3 +23,17 @@ torch7/
 
 # Lua
 luacov.*.out
+
+# Benchmark-only Python environment and uv caches
+.venv-bench/
+.uv-cache/
+.uv-python/
+
+# Fusion JIT cache
+.luatorch-cache/
+
+# Local LuaJIT experiment/build
+third_party/luajit-src/
+
+# Local debug logs
+bench/_*.log

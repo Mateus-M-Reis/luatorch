@@ -9,8 +9,8 @@
 4. Make the functional layer luafun-based and Moses-free.
 5. Stay small enough to audit and extend.
 
-Non-goals for 0.3: full operator parity with ATen, CUDA, Windows, a complete
-`nn` zoo.
+Non-goals for 0.4: full operator parity with ATen, CUDA, Windows, a complete
+`nn` zoo, fused autograd.
 
 ## Layers
 
@@ -22,6 +22,8 @@ Non-goals for 0.3: full operator parity with ATen, CUDA, Windows, a complete
      lua/torch/nn/*            modules, losses, containers, functional API
      lua/torch/optim/*         SGD, Adam(W), RMSprop, Adagrad, clipping, schedulers
      lua/torch/utils/*         Dataset, TensorDataset, DataLoader
+     lua/torch/fuse.lua        expression tracer + LuaJIT codegen
+     lua/torch/fusec.lua       C codegen, gcc driver, kernel cache
      lua/torch/lib.lua         ffi.cdef declarations + shared library loader
               │
         LuaJIT FFI (C ABI only)
@@ -181,11 +183,45 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 215 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 229 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
 and every error test checks a meaningful part of the message.
+
+## Fused execution
+
+`torch.fuse` is deliberately a tracer, not a lazy tensor type. It runs the user
+function once with symbolic tensor objects, builds an expression tree, and then:
+
+- emits C and compiles it with `gcc -O3 -march=native -fopenmp` into a shared
+  object cached by source hash (`.luatorch-cache`), or
+- emits a LuaJIT loop over raw `float*`/`double*` pointers when C is unavailable.
+
+The C ABI is intentionally generic:
+
+```c
+void luatorch_kernel(const void** ptrs, const double* scalars,
+                     int64_t n, int threads);
+```
+
+`ptrs` holds the tensor inputs followed by the output. Scalar arguments are
+passed separately, which lets the same compiled kernel serve different scalar
+values. OpenMP is enabled only for `n > 20000 && threads > 1`, using libtorch's
+thread count.
+
+Two implementation details matter for speed:
+
+- **Branchless activations.** Emitting `v < 0 ? 0 : v` vectorises; `fmaxf`
+  without `-ffast-math` becomes a libm call and makes a 1M relu ~4x slower.
+- **External-memory-aware GC.** LuaJIT only sees tiny handles, not the 4 MB
+  behind each tensor. `tensor.lua` tracks `numel * element_size` and forces a
+  full collection when the total crosses 64 MB. Finalizers use
+  `lt_free_counted`, which deliberately does not clear the thread-local error
+  (otherwise a GC during `ffi.string` can erase an error message being read).
+
+Unsupported expressions, shape mismatches and autograd inputs fall back to
+eager execution, so the tracer is never on the correctness path.
 
 ## Benchmarks
 

@@ -1,4 +1,4 @@
-# luatorch API reference (0.3.0)
+# luatorch API reference (0.4.0)
 
 All examples assume:
 
@@ -26,6 +26,31 @@ local torch = require("torch")
   **0-dim tensor**; use `:item()` to obtain a Lua number.
 - **Errors** are raised as Lua errors (`pcall` catches them) with the original
   ATen message.
+
+## Fusion
+
+`torch.fuse(fn, options?)` traces a pure elementwise function and compiles it
+into a single kernel:
+
+```lua
+local fused = torch.fuse(function(a, b, c)
+  return (a * b + c):relu()
+end, {backend = "auto"})        -- "auto" | "c" | "lua"
+
+local out = fused(a, b, c)
+local buffer = torch.empty(a:sizes(), {dtype = a:dtype()})
+fused:into(buffer, a, b, c)     -- reusable output, no allocation
+```
+
+Supported: `+ - * / ^`, unary `-`, `abs`, `relu`, `sigmoid`, `tanh`, `exp`, `log`,
+`sqrt`, `clamp`. Tensor inputs must be float32/float64 with the same shape;
+scalar arguments are runtime values. Anything else (reductions, broadcasting,
+autograd inputs, unsupported ops) falls back to eager ATen.
+
+The default C backend requires `gcc`; it caches compiled kernels in
+`.luatorch-cache/` (`LUATORCH_CACHE` overrides). The LuaJIT backend is always
+available. `fused.last_error` / `fused.last_c_error` explain fallbacks. See
+[docs/fusion.md](fusion.md) for internals and benchmarks.
 
 ## Dtypes
 
@@ -390,6 +415,6 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.3.0")
+torch.VERSION             -- luatorch version string ("0.4.0")
 torch.version             -- libtorch version string
 ```

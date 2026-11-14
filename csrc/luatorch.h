@@ -45,6 +45,8 @@ enum lt_dtype {
 const char* lt_version(void);
 const char* lt_last_error(void);
 void        lt_free(lt_tensor* t);
+/* Frees the handle and returns its byte size without touching the error state. */
+int64_t     lt_free_counted(lt_tensor* t);
 
 /* ------------------------------------------------------------------ */
 /* creation                                                           */

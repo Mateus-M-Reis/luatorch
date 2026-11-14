@@ -10,6 +10,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/Parallel.h>
+#include <c10/util/Logging.h>
 #include <torch/serialize.h>
 #include <torch/version.h>
 
@@ -27,6 +28,22 @@ struct lt_tensor {
 namespace {
 
 thread_local std::string g_last_error;
+
+// c10::Error normally unwinds the C++ stack to build an error backtrace.  When
+// the throw happens under LuaJIT's JIT-compiled frames, _Unwind_Backtrace can
+// abort because those frames are not unwindable.  We do not expose the C++
+// backtrace to users anyway (the message and source location are kept), so
+// install an empty stack-trace fetcher before any ATen call can throw.
+struct StackTraceSilencer {
+  StackTraceSilencer() {
+    // There are two fetcher overloads; disable both.  The lazy Backtrace
+    // overload is the one used while constructing c10::Error.
+    c10::SetStackTraceFetcher([]() -> c10::Backtrace { return nullptr; });
+    c10::SetStackTraceFetcher([]() { return std::string(); });
+  }
+};
+
+const StackTraceSilencer g_stacktrace_silencer;
 
 void clear_error() {
   g_last_error.clear();
@@ -286,6 +303,15 @@ const char* lt_last_error(void) {
 
 void lt_free(lt_tensor* t) {
   delete t;
+}
+
+int64_t lt_free_counted(lt_tensor* t) {
+  if (t == nullptr) {
+    return 0;
+  }
+  int64_t bytes = t->t.numel() * t->t.element_size();
+  delete t;
+  return bytes;
 }
 
 /* ------------------------------------------------------------------ */

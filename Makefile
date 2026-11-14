@@ -1,4 +1,4 @@
-.PHONY: all build test bench clean repl
+.PHONY: all build test bench compare clean repl
 
 all: build
 
@@ -10,6 +10,9 @@ test: build
 
 bench: build
 	./scripts/bench.sh
+
+compare: build
+	./scripts/compare.sh
 
 repl: build
 	./scripts/repl.sh
