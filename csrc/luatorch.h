@@ -317,6 +317,12 @@ int lt_adagrad_step(
     double lr, double lr_decay, double weight_decay,
     double eps, int64_t step);
 
+int lt_clip_grad_norm_(
+    lt_tensor* const* gradients, int64_t count,
+    double max_norm, double norm_type, double* out_norm);
+int lt_clip_grad_value_(
+    lt_tensor* const* gradients, int64_t count, double clip_value);
+
 /* Fused forward/backward through a C++ autograd Function.  Kernel pointers
  * have the signature:
  *   void kernel(const void** ptrs, const double* scalars, int64_t n, int threads)

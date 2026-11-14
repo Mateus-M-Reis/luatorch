@@ -41,7 +41,7 @@ local function format_row(row)
   return string.format("%-34s %12.3f ms  %s", row.name, milliseconds, per_iteration)
 end
 
-print(string.format("luatorch %s benchmarks (libtorch %s)", torch.VERSION or "0.6.2", torch.version))
+print(string.format("luatorch %s benchmarks (libtorch %s)", torch.VERSION or "0.6.3", torch.version))
 print(string.rep("-", 78))
 
 torch.manual_seed(42)

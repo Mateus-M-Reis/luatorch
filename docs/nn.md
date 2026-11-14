@@ -230,6 +230,10 @@ float64; non-contiguous parameters raise an error rather than silently copying.
 
 ### Gradient clipping
 
+Gradient-norm and gradient-value clipping use fused C kernels when every
+gradient is contiguous float32/float64; other layouts fall back to the Lua
+tensor path.
+
 ```lua
 optim.clip_grad_norm_(model:parameters(), 1.0)        -- global L2 norm
 optim.clip_grad_norm_(model:parameters(), 1.0, math.huge)

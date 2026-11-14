@@ -91,7 +91,7 @@ What the table actually says:
 
 ## Status
 
-> **0.6.2 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.6.3 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean` reductions with backward
 > are implemented and covered by **248 tests**. CUDA, higher-order autograd,
@@ -201,7 +201,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, `torch.linalg.*` |
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
 | Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
-| Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, clipping, LR schedulers |
+| Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, shuffling |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
 | Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean reductions, compile cache |

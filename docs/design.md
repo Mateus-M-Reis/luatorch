@@ -259,7 +259,8 @@ modest than inference fusion (~5x).
 Optimizer updates use the same philosophy: Adam/AdamW/SGD/RMSprop/Adagrad are
 single C loops over `data_ptr`, with `__restrict` pointers and `-O3 -march=native
 -fno-math-errno`, avoiding the ~10 temporary tensors the Lua implementation
-would allocate. This makes the optimizer step ~5x faster than PyTorch on the
+would allocate. Gradient clipping uses the same approach: norm accumulation and
+in-place scaling happen without `abs`/`pow`/`sum` temporaries. This makes the optimizer step ~5x faster than PyTorch on the
 MLP benchmark.
 
 Unsupported expressions and shape mismatches fall back to eager execution, so

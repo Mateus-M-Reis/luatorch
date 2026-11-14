@@ -494,6 +494,71 @@ void adagrad_step_typed(
   }
 }
 
+template <typename scalar_t>
+double gradient_norm_squared(const at::Tensor& gradient) {
+  const scalar_t* data = gradient.const_data_ptr<scalar_t>();
+  const int64_t count = gradient.numel();
+  double total = 0.0;
+  for (int64_t i = 0; i < count; ++i) {
+    const double value = static_cast<double>(data[i]);
+    total += value * value;
+  }
+  return total;
+}
+
+template <typename scalar_t>
+double gradient_max_abs(const at::Tensor& gradient) {
+  const scalar_t* data = gradient.const_data_ptr<scalar_t>();
+  const int64_t count = gradient.numel();
+  double maximum = 0.0;
+  for (int64_t i = 0; i < count; ++i) {
+    const double value = std::fabs(static_cast<double>(data[i]));
+    if (value > maximum) maximum = value;
+  }
+  return maximum;
+}
+
+template <typename scalar_t>
+void gradient_scale(at::Tensor& gradient, double coefficient) {
+  scalar_t* data = gradient.mutable_data_ptr<scalar_t>();
+  const int64_t count = gradient.numel();
+  const scalar_t scale = static_cast<scalar_t>(coefficient);
+  for (int64_t i = 0; i < count; ++i) {
+    data[i] = static_cast<scalar_t>(data[i] * scale);
+  }
+}
+
+template <typename scalar_t>
+void gradient_clamp(at::Tensor& gradient, double clip_value) {
+  scalar_t* data = gradient.mutable_data_ptr<scalar_t>();
+  const int64_t count = gradient.numel();
+  const scalar_t low = static_cast<scalar_t>(-clip_value);
+  const scalar_t high = static_cast<scalar_t>(clip_value);
+  for (int64_t i = 0; i < count; ++i) {
+    const scalar_t value = data[i];
+    data[i] = value < low ? low : (value > high ? high : value);
+  }
+}
+
+void require_clipping_gradient(
+    const lt_tensor* gradient, const char* what) {
+  if (gradient == nullptr) {
+    throw std::runtime_error(std::string(what) + ": null gradient");
+  }
+  const at::Tensor& tensor = gradient->t;
+  if (tensor.scalar_type() != at::kFloat && tensor.scalar_type() != at::kDouble) {
+    throw std::runtime_error(
+        std::string(what) + ": float32 or float64 gradients required");
+  }
+  if (!tensor.is_contiguous()) {
+    throw std::runtime_error(
+        std::string(what) + ": gradients must be contiguous");
+  }
+  if (!tensor.device().is_cpu()) {
+    throw std::runtime_error(std::string(what) + ": CPU tensors required");
+  }
+}
+
 }  // namespace
 
 int lt_adam_step(
@@ -935,6 +1000,74 @@ int lt_adagrad_step(
     } else {
       throw std::runtime_error(
           "adagrad_step: float32 or float64 parameters required");
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_clip_grad_norm_(
+    lt_tensor* const* gradients, int64_t count,
+    double max_norm, double norm_type, double* out_norm) {
+  try {
+    clear_error();
+    if (out_norm == nullptr) {
+      throw std::runtime_error("clip_grad_norm_: null output pointer");
+    }
+    double total = 0.0;
+    if (norm_type == 2.0) {
+      for (int64_t i = 0; i < count; ++i) {
+        require_clipping_gradient(gradients[i], "clip_grad_norm_");
+        if (gradients[i]->t.scalar_type() == at::kFloat) {
+          total += gradient_norm_squared<float>(gradients[i]->t);
+        } else {
+          total += gradient_norm_squared<double>(gradients[i]->t);
+        }
+      }
+      total = std::sqrt(total);
+    } else if (std::isinf(norm_type)) {
+      for (int64_t i = 0; i < count; ++i) {
+        require_clipping_gradient(gradients[i], "clip_grad_norm_");
+        double maximum;
+        if (gradients[i]->t.scalar_type() == at::kFloat) {
+          maximum = gradient_max_abs<float>(gradients[i]->t);
+        } else {
+          maximum = gradient_max_abs<double>(gradients[i]->t);
+        }
+        if (maximum > total) total = maximum;
+      }
+    } else {
+      throw std::runtime_error(
+          "clip_grad_norm_: fused path supports norm_type 2 or infinity");
+    }
+
+    const double coefficient = max_norm / (total + 1e-6);
+    if (coefficient < 1.0) {
+      for (int64_t i = 0; i < count; ++i) {
+        if (gradients[i]->t.scalar_type() == at::kFloat) {
+          gradient_scale<float>(gradients[i]->t, coefficient);
+        } else {
+          gradient_scale<double>(gradients[i]->t, coefficient);
+        }
+      }
+    }
+    *out_norm = total;
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_clip_grad_value_(
+    lt_tensor* const* gradients, int64_t count, double clip_value) {
+  try {
+    clear_error();
+    for (int64_t i = 0; i < count; ++i) {
+      require_clipping_gradient(gradients[i], "clip_grad_value_");
+      if (gradients[i]->t.scalar_type() == at::kFloat) {
+        gradient_clamp<float>(gradients[i]->t, clip_value);
+      } else {
+        gradient_clamp<double>(gradients[i]->t, clip_value);
+      }
     }
     return 0;
   }
