@@ -9,7 +9,7 @@
 4. Make the functional layer luafun-based and Moses-free.
 5. Stay small enough to audit and extend.
 
-Non-goals for 0.2: full operator parity with ATen, CUDA, Windows, a complete
+Non-goals for 0.3: full operator parity with ATen, CUDA, Windows, a complete
 `nn` zoo.
 
 ## Layers
@@ -107,6 +107,28 @@ ATen is 0-based; the Lua API is 1-based. Conversions live exclusively in
   while ATen's end is exclusive;
 - `argmax`/`argmin` add 1 to ATen's result.
 
+## Sorting, indexing and linear algebra
+
+- `sort`/`topk`/`unique` return ATen's 0-based indices; the Lua layer adds one
+  so results can be used directly with `index_select`, `get`, or `gather`.
+  `unique` returns `values[, inverse, counts]`; the inverse map is also
+  shifted to 1-based.
+- `gather`/`scatter` accept 1-based index tensors and convert them once at the
+  boundary. Index `0` becomes `-1` and fails loudly, which catches off-by-one
+  mistakes early.
+- `nonzero` returns an `(N, ndim)` int64 tensor of 1-based coordinates.
+- Multi-output linear algebra (`svd`, `qr`) and selection (`sort`, `topk`,
+  `unique`) use C out-parameters: the shim writes `lt_tensor*` handles and Lua
+  wraps them with finalizers. This avoids tuple/FFI ABI tricks.
+- Linear algebra delegates to ATen/LAPACK (`linalg_inv`, `linalg_det`,
+  `linalg_solve`, `linalg_cholesky`, `linalg_svd`, `linalg_qr`), so dtypes and
+  errors match PyTorch.
+- `multinomial` samples 1-based categories for the same reason as `argmax`;
+  uniform/normal/exponential/bernoulli updates are in-place and run through
+  ATen's RNG.
+- Thread control exposes `at::set_num_threads` / `at::get_num_threads`; OpenMP
+  availability is determined by the libtorch build.
+
 ## Printing
 
 Printing is implemented in Lua from `totable()` data because formatting needs
@@ -159,7 +181,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 189 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 215 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),

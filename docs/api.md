@@ -1,4 +1,4 @@
-# luatorch API reference (0.2.0)
+# luatorch API reference (0.3.0)
 
 All examples assume:
 
@@ -143,6 +143,12 @@ t:flip(dim)
 t:masked_select(mask)
 t:index_select(dim, indices)       -- indices is an integer tensor, 1-based
 t:masked_fill(mask, value)
+t:gather(dim, index)               -- 1-based index tensor
+t:scatter(dim, index, source)      -- out-of-place, 1-based index tensor
+t:nonzero()                        -- 1-based coordinates, shape (N, ndim)
+t:sort(dim?, descending?)          -- values, 1-based indices
+t:topk(k, dim?, largest?, sorted?) -- values, 1-based indices
+t:unique(sorted?, inverse?, counts?) -- values[, inverse, counts]; inverse is 1-based
 ```
 
 Examples:
@@ -192,6 +198,23 @@ a:matmul(b)     -- batched matmul with broadcasting
 a:mm(b)         -- 2-D matrix multiplication
 a:bmm(b)        -- batched 3-D matmul
 a:dot(b)        -- 1-D dot product
+a:mv(v)         -- matrix-vector product
+a:outer(v)      -- outer product
+a:addmm(m1, m2, beta?, alpha?)    -- beta*a + alpha*(m1 @ m2)
+a:baddbmm(m1, m2, beta?, alpha?)  -- batched addmm
+```
+
+### Linear algebra
+
+```lua
+a:inverse()
+a:det()
+a:solve(b)          -- solve a x = b (b may be a vector or matrix)
+a:cholesky(upper?)  -- A = L L^T (or U^T U)
+a:svd(full_matrices?)  -- returns U, S, Vh
+a:qr(mode?)            -- returns Q, R; mode defaults to "reduced"
+
+torch.linalg.inv/det/solve/cholesky/svd/qr   -- aliases
 ```
 
 ## Neural-network primitives
@@ -201,6 +224,8 @@ These back `torch.nn`; they are also useful when writing custom layers.
 ```lua
 t:softmax(dim?)        t:log_softmax(dim?)     -- dim defaults to the last
 t:uniform_(low?, high?)                       -- random in-place init
+t:normal_(mean?, std?)      t:exponential_(lambda?)
+t:bernoulli_(p?)            t:multinomial(n, replacement?)  -- 1-based samples
 
 torch.softmax(t, dim)  torch.log_softmax(t, dim)
 torch.conv2d(input, weight, bias, stride?, padding?, dilation?, groups?)
@@ -265,6 +290,7 @@ t:argmin(dim?, keepdim?)
 t:var(dim?, unbiased?, keepdim?)
 t:std(dim?, unbiased?, keepdim?)
 t:norm(p?, dim?, keepdim?)     -- p defaults to 2; math.huge supported
+t:logsumexp(dim?, keepdim?)
 t:cumsum(dim?)                 -- dim defaults to 1
 t:cumprod(dim?)
 t:all(dim?, keepdim?)
@@ -360,7 +386,10 @@ torch.manual_seed(seed)
 torch.set_default_dtype(dtype)
 torch.get_default_dtype()
 torch.dtype_name(dtype)
+torch.get_num_threads() / torch.set_num_threads(n)
+torch.sort / topk / unique / nonzero / gather / scatter / multinomial
+torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.2.0")
+torch.VERSION             -- luatorch version string ("0.3.0")
 torch.version             -- libtorch version string
 ```

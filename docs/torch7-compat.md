@@ -26,6 +26,14 @@ utilities Torch7 code often imported from Moses.
 | `t:sum(1)` / `t:sum()` | same | `sum()` returns a 0-dim tensor |
 | `t:max(1)` | same | returns values plus 1-based indices |
 | `t:mean()` | same | integer tensors are rejected, like PyTorch |
+| `t:sort(dim, descending)` | same, returning 1-based indices |
+| `t:svd()` | `t:svd()` returning U, S, Vh |
+| `t:inverse()` | `t:inverse()` |
+| `t:det()` | `t:det()` |
+| `t:gesv(b)` | `t:solve(b)` |
+| `t:potrf()` | `t:cholesky()` |
+| `t:normal(mean, std)` | `t:normal_(mean, std)` |
+| `t:bernoulli(p)` | `t:bernoulli_(p)` |
 | `torch.save(path, t)` | `torch.save(t, path)` | argument order is PyTorch's |
 | `torch.load(path)` | same | PyTorch zip format |
 | `torch.type(t)` | `t:type()` | |

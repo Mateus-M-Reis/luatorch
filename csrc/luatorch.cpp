@@ -9,6 +9,7 @@
 #include "luatorch.h"
 
 #include <ATen/ATen.h>
+#include <ATen/Parallel.h>
 #include <torch/serialize.h>
 #include <torch/version.h>
 
@@ -923,6 +924,103 @@ lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b) {
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_linalg_inv(lt_tensor* a) {
+  try {
+    clear_error();
+    return wrap(at::linalg_inv(a->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_linalg_det(lt_tensor* a) {
+  try {
+    clear_error();
+    return wrap(at::linalg_det(a->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_linalg_solve(lt_tensor* a, lt_tensor* b) {
+  try {
+    clear_error();
+    return wrap(at::linalg_solve(a->t, b->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_linalg_cholesky(lt_tensor* a, int upper) {
+  try {
+    clear_error();
+    return wrap(at::linalg_cholesky(a->t, upper != 0));
+  }
+  LT_CATCH_NULL
+}
+
+int lt_linalg_svd(lt_tensor* a, int full_matrices,
+                  lt_tensor** U, lt_tensor** S, lt_tensor** Vh) {
+  try {
+    clear_error();
+    if (U == nullptr || S == nullptr || Vh == nullptr) {
+      throw std::runtime_error("svd: null output pointer");
+    }
+    auto result = at::linalg_svd(a->t, full_matrices != 0, std::nullopt);
+    *U = wrap(std::get<0>(result));
+    *S = wrap(std::get<1>(result));
+    *Vh = wrap(std::get<2>(result));
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_linalg_qr(lt_tensor* a, const char* mode, lt_tensor** Q, lt_tensor** R) {
+  try {
+    clear_error();
+    if (Q == nullptr || R == nullptr) {
+      throw std::runtime_error("qr: null output pointer");
+    }
+    std::string mode_string = mode == nullptr ? "reduced" : std::string(mode);
+    auto result = at::linalg_qr(a->t, mode_string);
+    *Q = wrap(std::get<0>(result));
+    *R = wrap(std::get<1>(result));
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+lt_tensor* lt_mv(lt_tensor* a, lt_tensor* v) {
+  try {
+    clear_error();
+    return wrap(at::mv(a->t, v->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_outer(lt_tensor* a, lt_tensor* b) {
+  try {
+    clear_error();
+    return wrap(at::outer(a->t, b->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_addmm(lt_tensor* self, lt_tensor* a, lt_tensor* b,
+                    double beta, double alpha) {
+  try {
+    clear_error();
+    return wrap(at::addmm(self->t, a->t, b->t, beta, alpha));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_baddbmm(lt_tensor* self, lt_tensor* a, lt_tensor* b,
+                      double beta, double alpha) {
+  try {
+    clear_error();
+    return wrap(at::baddbmm(self->t, a->t, b->t, beta, alpha));
+  }
+  LT_CATCH_NULL
+}
+
 /* ------------------------------------------------------------------ */
 /* neural-network primitives                                          */
 /* ------------------------------------------------------------------ */
@@ -1331,6 +1429,95 @@ lt_tensor* lt_index_select(lt_tensor* a, int64_t dim, lt_tensor* indices) {
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_nonzero(lt_tensor* a) {
+  try {
+    clear_error();
+    return wrap(a->t.nonzero());
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_gather(lt_tensor* a, int64_t dim, lt_tensor* index) {
+  try {
+    clear_error();
+    int64_t d = resolve_dim(dim, a->t.dim(), "gather");
+    if (index->t.scalar_type() != at::kLong) {
+      throw std::runtime_error("gather: index must be int64");
+    }
+    return wrap(at::gather(a->t, d, index->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_scatter(lt_tensor* a, int64_t dim, lt_tensor* index, lt_tensor* src) {
+  try {
+    clear_error();
+    int64_t d = resolve_dim(dim, a->t.dim(), "scatter");
+    if (index->t.scalar_type() != at::kLong) {
+      throw std::runtime_error("scatter: index must be int64");
+    }
+    return wrap(at::scatter(a->t, d, index->t, src->t));
+  }
+  LT_CATCH_NULL
+}
+
+int lt_sort(lt_tensor* a, int64_t dim, int descending,
+            lt_tensor** values, lt_tensor** indices) {
+  try {
+    clear_error();
+    if (values == nullptr || indices == nullptr) {
+      throw std::runtime_error("sort: null output pointer");
+    }
+    int64_t d = resolve_dim(dim, a->t.dim(), "sort");
+    auto result = a->t.sort(d, descending != 0);
+    *values = wrap(std::get<0>(result));
+    *indices = wrap(std::get<1>(result));
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_topk(lt_tensor* a, int64_t k, int64_t dim, int largest, int sorted,
+            lt_tensor** values, lt_tensor** indices) {
+  try {
+    clear_error();
+    if (values == nullptr || indices == nullptr) {
+      throw std::runtime_error("topk: null output pointer");
+    }
+    int64_t d = resolve_dim(dim, a->t.dim(), "topk");
+    auto result = a->t.topk(k, d, largest != 0, sorted != 0);
+    *values = wrap(std::get<0>(result));
+    *indices = wrap(std::get<1>(result));
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_unique(lt_tensor* a, int sorted, int return_inverse, int return_counts,
+              lt_tensor** values, lt_tensor** inverse, lt_tensor** counts) {
+  try {
+    clear_error();
+    if (values == nullptr) {
+      throw std::runtime_error("unique: null output pointer");
+    }
+    auto result = at::_unique2(
+        a->t, sorted != 0, return_inverse != 0, return_counts != 0);
+    *values = wrap(std::get<0>(result));
+    if (inverse != nullptr && return_inverse) {
+      *inverse = wrap(std::get<1>(result));
+    } else if (inverse != nullptr) {
+      *inverse = nullptr;
+    }
+    if (counts != nullptr && return_counts) {
+      *counts = wrap(std::get<2>(result));
+    } else if (counts != nullptr) {
+      *counts = nullptr;
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
 /* ------------------------------------------------------------------ */
 /* reductions                                                         */
 /* ------------------------------------------------------------------ */
@@ -1502,6 +1689,62 @@ lt_tensor* lt_any(lt_tensor* a, int64_t dim, int keepdim) {
     return wrap(a->t.any(d, keepdim != 0));
   }
   LT_CATCH_NULL
+}
+
+lt_tensor* lt_logsumexp(lt_tensor* a, int64_t dim, int keepdim) {
+  try {
+    clear_error();
+    if (dim == LT_ALL_DIMS) {
+      std::vector<int64_t> dims = all_dims(a->t.dim());
+      return wrap(at::logsumexp(a->t, dims, keepdim != 0));
+    }
+    int64_t d = resolve_dim(dim, a->t.dim(), "logsumexp");
+    return wrap(at::logsumexp(a->t, at::IntArrayRef(&d, 1), keepdim != 0));
+  }
+  LT_CATCH_NULL
+}
+
+int lt_normal_(lt_tensor* a, double mean, double std) {
+  try {
+    clear_error();
+    a->t.normal_(mean, std);
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_exponential_(lt_tensor* a, double lambd) {
+  try {
+    clear_error();
+    a->t.exponential_(lambd);
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_bernoulli_(lt_tensor* a, double p) {
+  try {
+    clear_error();
+    a->t.bernoulli_(p);
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+lt_tensor* lt_multinomial(lt_tensor* a, int64_t num_samples, int replacement) {
+  try {
+    clear_error();
+    return wrap(at::multinomial(a->t, num_samples, replacement != 0));
+  }
+  LT_CATCH_NULL
+}
+
+void lt_set_num_threads(int num_threads) {
+  at::set_num_threads(num_threads);
+}
+
+int lt_get_num_threads(void) {
+  return at::get_num_threads();
 }
 
 /* ------------------------------------------------------------------ */

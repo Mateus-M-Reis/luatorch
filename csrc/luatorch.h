@@ -182,6 +182,27 @@ lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b);
 /* ------------------------------------------------------------------ */
 lt_tensor* lt_softmax(lt_tensor* a, int64_t dim);
 lt_tensor* lt_log_softmax(lt_tensor* a, int64_t dim);
+lt_tensor* lt_linalg_inv(lt_tensor* a);
+lt_tensor* lt_linalg_det(lt_tensor* a);
+lt_tensor* lt_linalg_solve(lt_tensor* a, lt_tensor* b);
+lt_tensor* lt_linalg_cholesky(lt_tensor* a, int upper);
+int lt_linalg_svd(lt_tensor* a, int full_matrices,
+                  lt_tensor** U, lt_tensor** S, lt_tensor** Vh);
+int lt_linalg_qr(lt_tensor* a, const char* mode,
+                 lt_tensor** Q, lt_tensor** R);
+lt_tensor* lt_mv(lt_tensor* a, lt_tensor* v);
+lt_tensor* lt_outer(lt_tensor* a, lt_tensor* b);
+lt_tensor* lt_addmm(lt_tensor* self, lt_tensor* a, lt_tensor* b,
+                    double beta, double alpha);
+lt_tensor* lt_baddbmm(lt_tensor* self, lt_tensor* a, lt_tensor* b,
+                      double beta, double alpha);
+lt_tensor* lt_logsumexp(lt_tensor* a, int64_t dim, int keepdim);
+int lt_normal_(lt_tensor* a, double mean, double std);
+int lt_exponential_(lt_tensor* a, double lambd);
+int lt_bernoulli_(lt_tensor* a, double p);
+lt_tensor* lt_multinomial(lt_tensor* a, int64_t num_samples, int replacement);
+void lt_set_num_threads(int num_threads);
+int lt_get_num_threads(void);
 lt_tensor* lt_conv2d(
     lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
     int64_t stride_h, int64_t stride_w,
@@ -238,6 +259,17 @@ lt_tensor* lt_where(lt_tensor* cond, lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_masked_fill(lt_tensor* a, lt_tensor* mask, double value);
 lt_tensor* lt_masked_select(lt_tensor* a, lt_tensor* mask);
 lt_tensor* lt_index_select(lt_tensor* a, int64_t dim, lt_tensor* indices);
+lt_tensor* lt_nonzero(lt_tensor* a);
+lt_tensor* lt_gather(lt_tensor* a, int64_t dim, lt_tensor* index);
+lt_tensor* lt_scatter(lt_tensor* a, int64_t dim, lt_tensor* index, lt_tensor* src);
+
+/* sorting and selection; indices are 0-based (the Lua layer adds one) */
+int lt_sort(lt_tensor* a, int64_t dim, int descending,
+            lt_tensor** values, lt_tensor** indices);
+int lt_topk(lt_tensor* a, int64_t k, int64_t dim, int largest, int sorted,
+            lt_tensor** values, lt_tensor** indices);
+int lt_unique(lt_tensor* a, int sorted, int return_inverse, int return_counts,
+              lt_tensor** values, lt_tensor** inverse, lt_tensor** counts);
 
 /* ------------------------------------------------------------------ */
 /* reductions; dim == LT_ALL_DIMS reduces over all dimensions         */

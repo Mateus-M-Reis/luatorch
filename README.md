@@ -15,9 +15,10 @@ well-tested tensor library. `luatorch` reconnects the two:
 - **`torch.nn`** (Linear, Conv2d, pooling, BatchNorm, Dropout, losses, containers)
   and **`torch.optim`** (SGD, Adam, RMSprop, Adagrad)
 
-> Status: **0.2.0 alpha**, CPU build. Core tensors, math, autograd, I/O, the
-> luafun bridge, and the first `nn`/`optim` layer are implemented and covered by
-> **189 tests**. CUDA, more datasets, and the long tail of ATen operators are next
+> Status: **0.3.0 alpha**, CPU build. Core tensors, autograd, I/O, the luafun
+> bridge, `nn`/`optim`, data loading, sorting/selection, basic linear algebra and
+> random distributions are implemented and covered by **215 tests**. CUDA, more
+> datasets, and the long tail of ATen operators are next
 > (see [ROADMAP.md](ROADMAP.md)).
 
 ---
@@ -102,7 +103,7 @@ official prebuilt **libtorch** (CPU, C++11 ABI, 2.5.1).
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 189 tests
+scripts/test.sh               # 215 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL with torch preloaded
 ```
@@ -128,7 +129,11 @@ cmake --install build --prefix "$HOME/.local"
 | --- | --- |
 | Creation | `tensor`, `zeros`, `ones`, `empty`, `full`, `rand`, `randn`, `randperm`, `eye`, `arange`, `linspace`, `*_like` |
 | Dtypes | float32/float64/float16, int8/16/32/64, uint8, bool, `.to()`, Torch7 typed constructors |
-| Math | elementwise `+ - * / ^ %`, `maximum/minimum`, broadcasting, ~25 unary ops, `matmul/mm/bmm/dot`, comparisons, `where`, `masked_fill`, `masked_select` |
+| Math | elementwise `+ - * / ^ %`, `maximum/minimum`, broadcasting, ~25 unary ops, `matmul/mm/bmm/dot`, `mv`, `outer`, `addmm`, `baddbmm`, comparisons, `where`, `masked_fill`, `masked_select` |
+| Sorting | `sort`, `topk`, `unique` (values/inverse/counts), `nonzero`, `gather`, `scatter` |
+| Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, plus `torch.linalg.*` aliases |
+| Random | `normal_`, `exponential_`, `bernoulli_`, `multinomial` |
+| Threading | `torch.get_num_threads` / `torch.set_num_threads` |
 | Shape | `reshape`, `view`, `transpose`, `t`, `permute`, `squeeze`, `unsqueeze`, `flatten`, `expand`, `cat`, `stack`, `slice`, `narrow`, `select`, `flip`, `index_select` |
 | Reductions | `sum`, `mean`, `prod`, `max/min` (+ indices), `argmax/argmin`, `var/std`, `norm`, `cumsum/cumprod`, `all/any`, dims and `keepdim` |
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `zero_grad`, `no_grad`, `set_grad_enabled` |
@@ -180,6 +185,9 @@ repeats, `scripts/bench.sh`):
 | sum, 1M float32 | ~0.06 ms |
 | matmul 512×512 float32 | ~11.9 ms (≈22.6 GFLOP/s) |
 | matmul 128×128 float32 | ~0.06 ms |
+| sort, 1M float32 | ~260 ms |
+| topk, 1M float32, k=10 | ~8 ms |
+| SVD 128×128 float32 | ~12 ms |
 | small tensor add (16 elements) | ~3 µs per call round-trip |
 | luafun map+reduce over 200k | ~2.0 ms (plain Lua loop ~0.26 ms) |
 | luafun map+filter+reduce vs Moses, 200k | ~1.0 ms vs ~5.0 ms (≈5×) |

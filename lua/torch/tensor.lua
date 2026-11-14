@@ -671,6 +671,64 @@ function Tensor:index_select(dim, indices)
   return wrap(lib.lt_index_select(self.h, self:_cdim(dim), zero_based.h))
 end
 
+-- Coordinates are returned 1-based, ready for indexing_select or get().
+function Tensor:nonzero()
+  return wrap(lib.lt_nonzero(self.h)):to(2):add(1)
+end
+
+function Tensor:gather(dim, index)
+  if not is_tensor(index) then
+    error("gather expects an integer Tensor index", 3)
+  end
+  local zero_based = index:to(2):sub(1)
+  return wrap(lib.lt_gather(self.h, self:_cdim(dim), zero_based.h))
+end
+
+function Tensor:scatter(dim, index, source)
+  if not is_tensor(index) or not is_tensor(source) then
+    error("scatter expects index and source Tensors", 3)
+  end
+  local zero_based = index:to(2):sub(1)
+  return wrap(lib.lt_scatter(self.h, self:_cdim(dim), zero_based.h, source.h))
+end
+
+function Tensor:sort(dim, descending)
+  local d = self:_cdim(dim or self:dim())
+  local values_pointer = ffi.new("lt_tensor*[1]")
+  local indices_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_sort(self.h, d, descending and 1 or 0,
+    values_pointer, indices_pointer))
+  return wrap(values_pointer[0]), wrap(indices_pointer[0]):add(1)
+end
+
+function Tensor:topk(k, dim, largest, sorted_flag)
+  if largest == nil then largest = true end
+  if sorted_flag == nil then sorted_flag = true end
+  local d = self:_cdim(dim or self:dim())
+  local values_pointer = ffi.new("lt_tensor*[1]")
+  local indices_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_topk(self.h, k, d, largest and 1 or 0, sorted_flag and 1 or 0,
+    values_pointer, indices_pointer))
+  return wrap(values_pointer[0]), wrap(indices_pointer[0]):add(1)
+end
+
+function Tensor:unique(sorted_flag, return_inverse, return_counts)
+  if sorted_flag == nil then sorted_flag = true end
+  local values_pointer = ffi.new("lt_tensor*[1]")
+  local inverse_pointer = ffi.new("lt_tensor*[1]")
+  local counts_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_unique(self.h,
+    sorted_flag and 1 or 0,
+    return_inverse and 1 or 0,
+    return_counts and 1 or 0,
+    values_pointer, inverse_pointer, counts_pointer))
+  local values = wrap(values_pointer[0])
+  local inverse = inverse_pointer[0] ~= nil and
+    wrap(inverse_pointer[0]):add(1) or nil
+  local counts = counts_pointer[0] ~= nil and wrap(counts_pointer[0]) or nil
+  return values, inverse, counts
+end
+
 -- ---------------------------------------------------------------------------
 -- elementwise operators
 -- ---------------------------------------------------------------------------
@@ -806,6 +864,32 @@ function Tensor:uniform_(low, high)
   return self
 end
 
+function Tensor:normal_(mean, std)
+  check(lib.lt_normal_(self.h,
+    mean == nil and 0 or mean,
+    std == nil and 1 or std))
+  return self
+end
+
+function Tensor:exponential_(lambd)
+  check(lib.lt_exponential_(self.h, lambd == nil and 1 or lambd))
+  return self
+end
+
+function Tensor:bernoulli_(p)
+  p = p == nil and 0.5 or p
+  if p < 0 or p > 1 then
+    error("bernoulli_: p must be between 0 and 1", 3)
+  end
+  check(lib.lt_bernoulli_(self.h, p))
+  return self
+end
+
+function Tensor:multinomial(num_samples, replacement)
+  -- ATen samples 0-based categories; expose 1-based indices in Lua.
+  return wrap(lib.lt_multinomial(self.h, num_samples, replacement and 1 or 0)):add(1)
+end
+
 -- ---------------------------------------------------------------------------
 -- linear algebra
 -- ---------------------------------------------------------------------------
@@ -824,6 +908,60 @@ end
 
 function Tensor:dot(other)
   return wrap(lib.lt_dot(self.h, other.h))
+end
+
+-- Linear algebra ------------------------------------------------------------
+
+function Tensor:inverse()
+  return wrap(lib.lt_linalg_inv(self.h))
+end
+
+function Tensor:det()
+  return wrap(lib.lt_linalg_det(self.h))
+end
+
+function Tensor:solve(other)
+  return wrap(lib.lt_linalg_solve(self.h, other.h))
+end
+
+function Tensor:cholesky(upper)
+  return wrap(lib.lt_linalg_cholesky(self.h, upper and 1 or 0))
+end
+
+function Tensor:svd(full_matrices)
+  if full_matrices == nil then full_matrices = true end
+  local u_pointer = ffi.new("lt_tensor*[1]")
+  local s_pointer = ffi.new("lt_tensor*[1]")
+  local vh_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_linalg_svd(self.h, full_matrices and 1 or 0,
+    u_pointer, s_pointer, vh_pointer))
+  return wrap(u_pointer[0]), wrap(s_pointer[0]), wrap(vh_pointer[0])
+end
+
+function Tensor:qr(mode)
+  mode = mode or "reduced"
+  local q_pointer = ffi.new("lt_tensor*[1]")
+  local r_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_linalg_qr(self.h, mode, q_pointer, r_pointer))
+  return wrap(q_pointer[0]), wrap(r_pointer[0])
+end
+
+function Tensor:mv(vector)
+  return wrap(lib.lt_mv(self.h, vector.h))
+end
+
+function Tensor:outer(vector)
+  return wrap(lib.lt_outer(self.h, vector.h))
+end
+
+function Tensor:addmm(mat1, mat2, beta, alpha)
+  return wrap(lib.lt_addmm(self.h, mat1.h, mat2.h,
+    beta == nil and 1 or beta, alpha == nil and 1 or alpha))
+end
+
+function Tensor:baddbmm(mat1, mat2, beta, alpha)
+  return wrap(lib.lt_baddbmm(self.h, mat1.h, mat2.h,
+    beta == nil and 1 or beta, alpha == nil and 1 or alpha))
 end
 
 function Tensor:softmax(dim)
@@ -981,6 +1119,10 @@ end
 
 function Tensor:any(dim, keepdim)
   return reduction(self, lib.lt_any, dim, keepdim)
+end
+
+function Tensor:logsumexp(dim, keepdim)
+  return wrap(lib.lt_logsumexp(self.h, self:_cdim(dim), keepdim and 1 or 0))
 end
 
 -- ---------------------------------------------------------------------------

@@ -15,10 +15,10 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
-- [x] 189-test suite, benchmarks, API/design docs
+- [x] 215-test suite, benchmarks, API/design docs
 - [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
-## v0.2 — neural networks (current)
+## v0.2 — neural networks (done)
 
 - [x] `nn.Module` system: parameters, buffers, children, train/eval, dtype
   conversion, named parameters, `state_dict`/`load_state_dict`
@@ -39,25 +39,30 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [ ] Loss options: class weights, `ignore_index`, label smoothing
 - [ ] Optimizer extras: AMSGrad, `ReduceLROnPlateau`, per-parameter groups
 
-## v0.3 — tensor completeness
+## v0.3 — tensor completeness (current)
 
-- [ ] Richer indexing: tensor-of-indices selection, ranges, `gather`/`scatter`,
-  `index_put_`, `take_along_dim`, `nonzero`
-- [ ] `sort`, `topk`, `unique`, `bincount`, `histc`
-- [ ] Linear algebra: `inv`, `det`, `solve`, `svd`, `qr`, `eig`, `cholesky`,
-  `linalg.*` bindings
-- [ ] Random distributions beyond uniform/normal: bernoulli, exponential,
-  multinomial, in-place `normal_`/`uniform_`
-- [ ] `einsum`, `outer`, `mv`, `ger`, `addmm`, `baddbmm`
-- [ ] More reductions: `logsumexp`, `aminmax`, `median`, `quantile`
-- [ ] Thread-count control (`torch.set_num_threads`)
+- [x] `gather`, `scatter`, `nonzero` (1-based coordinates), `index_select`
+- [ ] Richer indexing: tensor-of-indices ranges, `index_put_`,
+  `take_along_dim`, advanced assignment
+- [x] `sort`, `topk`, `unique` (with inverse/counts)
+- [ ] `bincount`, `histc`
+- [x] Linear algebra: `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`
+- [ ] `eig`, `lu`, `lstsq`, `matrix_norm`, remaining `linalg.*` bindings
+- [x] Random: `normal_`, `exponential_`, `bernoulli_`, `uniform_`, `multinomial`
+- [ ] More distributions: `poisson`, `geometric`, `cauchy`, tensor-weighted
+  `normal`
+- [x] `mv`, `outer`, `addmm`, `baddbmm`
+- [ ] `einsum`, `ger`
+- [x] `logsumexp`
+- [ ] More reductions: `aminmax`, `median`, `quantile`
+- [x] Thread-count control (`torch.set_num_threads`)
 - [ ] `float16` creation from Lua values and printing parity
 
 ## v0.4 — the Torch7 stack
 
 - [x] `torch.nn` layers, losses, containers, functional forms, parameter iteration
 - [x] `torch.optim`: SGD, momentum, Adam, RMSprop, Adagrad
-- [ ] `torch.utils.data`: Dataset/DataLoader with deterministic shuffling
+- [x] `torch.utils.data`: Dataset/DataLoader with deterministic shuffling
 - [x] `torch.class`-style module system for user-defined layers (`nn.Module.class`)
 - [x] Model serialization to disk (`nn.save` / `model:load`)
 - [ ] PyTorch state-dict interop

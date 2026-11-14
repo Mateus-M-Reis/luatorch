@@ -21,7 +21,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.2.0"
+torch.VERSION = "0.3.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -483,6 +483,76 @@ function torch.uniform_(tensor, low, high)
     error("torch.uniform_ expects a Tensor", 2)
   end
   return tensor:uniform_(low, high)
+end
+
+-- sorting, selection, gather/scatter ----------------------------------------
+
+function torch.sort(tensor, dim, descending)
+  return tensor:sort(dim, descending)
+end
+
+function torch.topk(tensor, k, dim, largest, sorted_flag)
+  return tensor:topk(k, dim, largest, sorted_flag)
+end
+
+function torch.nonzero(tensor)
+  return tensor:nonzero()
+end
+
+function torch.gather(tensor, dim, index)
+  return tensor:gather(dim, index)
+end
+
+function torch.scatter(tensor, dim, index, source)
+  return tensor:scatter(dim, index, source)
+end
+
+function torch.unique(tensor, sorted_flag, return_inverse, return_counts)
+  return tensor:unique(sorted_flag, return_inverse, return_counts)
+end
+
+function torch.multinomial(tensor, num_samples, replacement)
+  return tensor:multinomial(num_samples, replacement)
+end
+
+-- linear algebra -------------------------------------------------------------
+
+torch.linalg = {
+  inv = function(a) return a:inverse() end,
+  det = function(a) return a:det() end,
+  solve = function(a, b) return a:solve(b) end,
+  cholesky = function(a, upper) return a:cholesky(upper) end,
+  svd = function(a, full_matrices) return a:svd(full_matrices) end,
+  qr = function(a, mode) return a:qr(mode) end,
+}
+
+function torch.mv(matrix, vector)
+  return matrix:mv(vector)
+end
+
+function torch.outer(a, b)
+  return a:outer(b)
+end
+
+function torch.addmm(input, mat1, mat2, beta, alpha)
+  return input:addmm(mat1, mat2, beta, alpha)
+end
+
+function torch.baddbmm(input, batch1, batch2, beta, alpha)
+  return input:baddbmm(batch1, batch2, beta, alpha)
+end
+
+-- threading ------------------------------------------------------------------
+
+function torch.set_num_threads(count)
+  if type(count) ~= "number" or count < 1 then
+    error("set_num_threads expects a positive integer", 2)
+  end
+  lib.lt_set_num_threads(count)
+end
+
+function torch.get_num_threads()
+  return lib.lt_get_num_threads()
 end
 
 -- utilities ------------------------------------------------------------------

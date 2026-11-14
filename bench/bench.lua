@@ -41,7 +41,7 @@ local function format_row(row)
   return string.format("%-34s %12.3f ms  %s", row.name, milliseconds, per_iteration)
 end
 
-print(string.format("luatorch %s benchmarks (libtorch %s)", torch.VERSION or "0.2.0", torch.version))
+print(string.format("luatorch %s benchmarks (libtorch %s)", torch.VERSION or "0.3.0", torch.version))
 print(string.rep("-", 78))
 
 torch.manual_seed(42)
@@ -87,6 +87,20 @@ for _, size in ipairs({ 128, 256, 512 }) do
   local gflops = (2 * size ^ 3) / seconds / 1e9
   print(string.format("%-34s %12.1f GFLOP/s", "  throughput", gflops))
 end
+
+-- sorting and linear algebra ------------------------------------------
+local million = torch.randn(1000000)
+bench("sort 1M float32", 5, function()
+  local values, indices = million:sort(1)
+end)
+bench("topk 1M, k=10", 10, function()
+  local values, indices = million:topk(10)
+end)
+
+local square = torch.randn(128, 128)
+bench("svd 128x128 float32", 5, function()
+  local u, s, vh = square:svd(false)
+end)
 
 -- per-call overhead -----------------------------------------------------
 local tiny = torch.randn(16)
