@@ -985,7 +985,16 @@ end
 
 function Tensor:softmax(dim)
   dim = dim or self:dim()
-  return wrap(lib.lt_softmax(self.h, self:_cdim(dim)))
+  local cdim = self:_cdim(dim)
+  local sizes = self:sizes()
+  local dtype = self:dtype_id()
+  if #sizes >= 1 and cdim == #sizes - 1 and (dtype == 0 or dtype == 1) then
+    local pointer = lib.lt_fused_softmax(self.h)
+    if pointer ~= nil then
+      return wrap(pointer)
+    end
+  end
+  return wrap(lib.lt_softmax(self.h, cdim))
 end
 
 function Tensor:log_softmax(dim)

@@ -26,6 +26,12 @@ void lt_cross_entropy_backward_f32(
     const float*, const int64_t*, float*, double, int64_t, int64_t);
 void lt_cross_entropy_backward_f64(
     const double*, const int64_t*, double*, double, int64_t, int64_t);
+void lt_softmax_f32(const float*, float*, int64_t, int64_t);
+void lt_softmax_f64(const double*, double*, int64_t, int64_t);
+void lt_softmax_backward_f32(
+    const float*, const float*, float*, int64_t, int64_t);
+void lt_softmax_backward_f64(
+    const double*, const double*, double*, int64_t, int64_t);
 }
 #include <torch/serialize.h>
 #include <torch/version.h>
@@ -1073,6 +1079,68 @@ class FusedCrossEntropyFunction
   }
 };
 
+class FusedSoftmaxFunction
+    : public torch::autograd::Function<FusedSoftmaxFunction> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx, at::Tensor input) {
+    if (input.dim() < 1) {
+      throw std::runtime_error("fused softmax expects at least 1D input");
+    }
+    const auto dtype = input.scalar_type();
+    if (dtype != at::kFloat && dtype != at::kDouble) {
+      throw std::runtime_error("fused softmax supports float32/float64 only");
+    }
+    at::Tensor contiguous = input.contiguous();
+    const int64_t columns = contiguous.size(-1);
+    if (columns <= 0) {
+      throw std::runtime_error("fused softmax needs a non-empty last dim");
+    }
+    const int64_t rows = contiguous.numel() / columns;
+    at::Tensor output = at::empty_like(contiguous);
+    if (dtype == at::kFloat) {
+      lt_softmax_f32(
+          contiguous.const_data_ptr<float>(),
+          output.mutable_data_ptr<float>(), rows, columns);
+    } else {
+      lt_softmax_f64(
+          contiguous.const_data_ptr<double>(),
+          output.mutable_data_ptr<double>(), rows, columns);
+    }
+    ctx->save_for_backward({output});
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto saved = ctx->get_saved_variables();
+    at::Tensor output = saved[0];
+    if (grad_outputs.empty() || !grad_outputs[0].defined()) {
+      return {at::Tensor()};
+    }
+    at::Tensor grad_output = grad_outputs[0].contiguous();
+    if (!grad_output.sizes().equals(output.sizes())) {
+      throw std::runtime_error("fused softmax: gradient shape mismatch");
+    }
+    const int64_t columns = output.size(-1);
+    const int64_t rows = output.numel() / columns;
+    at::Tensor gradient = at::empty_like(output);
+    if (output.scalar_type() == at::kFloat) {
+      lt_softmax_backward_f32(
+          output.const_data_ptr<float>(),
+          grad_output.const_data_ptr<float>(),
+          gradient.mutable_data_ptr<float>(), rows, columns);
+    } else {
+      lt_softmax_backward_f64(
+          output.const_data_ptr<double>(),
+          grad_output.const_data_ptr<double>(),
+          gradient.mutable_data_ptr<double>(), rows, columns);
+    }
+    return {gradient};
+  }
+};
+
 }  // namespace
 
 
@@ -1977,6 +2045,23 @@ lt_tensor* lt_baddbmm(lt_tensor* self, lt_tensor* a, lt_tensor* b,
 /* ------------------------------------------------------------------ */
 /* neural-network primitives                                          */
 /* ------------------------------------------------------------------ */
+
+lt_tensor* lt_fused_softmax(lt_tensor* a) {
+  try {
+    clear_error();
+    auto outputs = FusedSoftmaxFunction::apply(a->t);
+    if (outputs.empty()) {
+      throw std::runtime_error("fused softmax returned no output");
+    }
+    return wrap(outputs[0]);
+  } catch (const std::exception& error) {
+    set_error(error);
+    return nullptr;
+  } catch (...) {
+    set_error("unknown native error in fused softmax");
+    return nullptr;
+  }
+}
 
 lt_tensor* lt_softmax(lt_tensor* a, int64_t dim) {
   try {

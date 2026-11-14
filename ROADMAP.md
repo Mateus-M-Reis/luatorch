@@ -17,7 +17,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
-- [x] 258-test suite, benchmarks, API/design docs
+- [x] 261-test suite, benchmarks, API/design docs
 - [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
 ## v0.2 — neural networks (done)
@@ -74,7 +74,8 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Fused `logsumexp` (forward + backward)
 - [x] Fused last-dimension `log_softmax` (forward + backward)
 - [x] Fused cross-entropy (2D, mean/sum, class count <= 4096)
-- [ ] Fused softmax
+- [x] Fused last-dimension `softmax`
+- [ ] Fused softmax over arbitrary dimensions
 - [x] First-order fused forward+backward through a C++ autograd Function
 - [ ] Higher-order gradients through fused expressions
 - [ ] Automatic tracing of ordinary operator code (lazy tensors)

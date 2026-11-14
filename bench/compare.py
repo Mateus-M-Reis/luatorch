@@ -178,6 +178,19 @@ def run_pytorch(compile_chain):
 
     results["cross_entropy_eager"] = best_of(30, cross_entropy_eager)
 
+    softmax_input = torch.randn(4096, 256)
+    results["softmax_eager"] = best_of(
+        50, lambda: torch.softmax(softmax_input, dim=1))
+    softmax_train_input = torch.randn(4096, 256, requires_grad=True)
+    softmax_upstream = torch.randn(4096, 256)
+
+    def softmax_train_eager():
+        softmax_train_input.grad = None
+        output = torch.softmax(softmax_train_input, dim=1)
+        output.backward(softmax_upstream)
+
+    results["softmax_train_eager"] = best_of(30, softmax_train_eager)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -221,6 +234,8 @@ def print_table(lua, torch_results, compiled):
         ("log_softmax (fused)", "log_softmax_fused", "log_softmax_eager", None),
         ("log_softmax train (fused)", "log_softmax_train_fused", "log_softmax_train_eager", None),
         ("cross_entropy 4096x256 (fused)", "cross_entropy_fused", "cross_entropy_eager", None),
+        ("softmax 4096x256 (fused)", "softmax_fused", "softmax_eager", None),
+        ("softmax train (fused)", "softmax_train_fused", "softmax_train_eager", None),
         ("chain train (eager)", "chain_train", "chain_train", None),
         ("chain train (fused)", "chain_train_fused", "chain_train", None),
     ]

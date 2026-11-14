@@ -161,10 +161,19 @@ four independent accumulators. That reassociates the sum: relative error is
 about `1e-5` on 1M elements, which is fine for metrics and losses. Inference and
 training kernels stay precise; only reductions opt into fast-math.
 
-## Fused log-softmax
+## Fused softmax and log-softmax
 
-`Tensor:log_softmax(dim)` and `nn.LogSoftmax` use a fast-math kernel when the
-normalised dimension is the last one and the input is float32/float64:
+`Tensor:softmax(dim)`/`nn.Softmax` and `Tensor:log_softmax(dim)`/`nn.LogSoftmax`
+use fast-math kernels when the normalised dimension is the last one and the
+input is float32/float64. Softmax uses a store-then-scale loop:
+
+```c
+exp(x - max) -> output, sum; output *= 1 / sum
+```
+and its backward is `y * (dy - sum(dy * y))`.
+
+`log_softmax` computes max, `sum(exp(x - max))`, and `x - max - log(sum)` in one
+call:
 
 ```lua
 local log_probabilities = logits:log_softmax(2)
@@ -177,8 +186,10 @@ dtypes, or empty rows fall back to ATen.
 
 | workload | fused | eager ATen | speedup |
 | --- | ---: | ---: | ---: |
-| 4096×256 forward | 1.21 ms | 2.11 ms | 1.74x |
-| forward + backward | 3.50 ms | 4.78 ms | 1.37x |
+| log_softmax 4096×256 forward | 1.21 ms | 2.11 ms | 1.74x |
+| log_softmax + backward | 3.50 ms | 4.78 ms | 1.37x |
+| softmax 4096×256 forward | 1.20 ms | 1.63 ms | 1.36x |
+| softmax + backward | 3.33 ms | 3.82 ms | 1.15x |
 
 `cross_entropy` on 2D logits with mean/sum reduction reuses that kernel and a
 fast softmax-minus-onehot backward; class counts above 4096 fall back to ATen.
@@ -292,6 +303,8 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 | `logsumexp` train fused | 7.3 ms | 13.0 ms | **1.78x** | — |
 | log_softmax 4096×256 fused | 1.21 ms | 2.11 ms | **1.74x** | — |
 | log_softmax + backward fused | 3.50 ms | 4.78 ms | **1.37x** | — |
+| softmax 4096×256 fused | 1.20 ms | 1.63 ms | **1.36x** | — |
+| softmax + backward fused | 3.33 ms | 3.82 ms | **1.15x** | — |
 
 Caveats:
 
@@ -310,8 +323,8 @@ Caveats:
 ## Limitations and next steps
 
 - Fused reductions cover `sum`/`mean`/`logsumexp` with first-order backward;
-  last-dimension `log_softmax` and cross-entropy (≤4096 classes) are fused.
-  Softmax, layernorm, convolution, and matmul epilogues are not fused yet.
+  last-dimension `softmax`/`log_softmax` and cross-entropy (≤4096 classes) are
+  fused. Layernorm, convolution, and matmul epilogues are not fused yet.
 - Fused backward is first-order and C-backend only; second-order gradients and
   the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec

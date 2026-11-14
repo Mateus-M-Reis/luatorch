@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.6.8"
+torch.VERSION = "0.6.9"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor

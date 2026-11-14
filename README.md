@@ -71,6 +71,8 @@ Ryzen 3 machine. Eager and compiled PyTorch are shown separately because
 | log_softmax 4096×256, fused | 1.21 ms | 2.11 ms | **1.74x** | — | — |
 | log_softmax + backward, fused | 3.50 ms | 4.78 ms | **1.37x** | — | — |
 | cross_entropy 4096×256, fused | 4.18 ms | 5.33 ms | **1.28x** | — | — |
+| softmax 4096×256, fused | 1.20 ms | 1.63 ms | **1.36x** | — | — |
+| softmax + backward, fused | 3.33 ms | 3.82 ms | **1.15x** | — | — |
 
 What the table actually says:
 
@@ -84,6 +86,9 @@ What the table actually says:
   about 1.2–1.5x faster than eager PyTorch in best-of runs, less than the
   inference speedup because the custom autograd node and gradient allocations
   have fixed overhead.
+- **Softmax is fused for last-dimension layouts.** The store-then-scale kernel
+  reaches **1.36x** forward and **1.15x** through backward; the backward is
+  `y * (dy - sum(dy*y))`.
 - **Cross-entropy is fused for typical class counts.** It reuses the fast
   log-softmax, computes NLL directly, and backpropagates through a fast
   softmax-minus-onehot kernel: **1.28x** on a 4096×256 classifier. Very large
@@ -105,11 +110,11 @@ What the table actually says:
 
 ## Status
 
-> **0.6.8 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.6.9 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
-> backward are implemented, along with fused last-dimension `log_softmax` and
-> fused cross-entropy, and covered by **258 tests**. CUDA, higher-order
+> backward are implemented, along with fused last-dimension `softmax`,
+> `log_softmax`, and cross-entropy, and covered by **261 tests**. CUDA, higher-order
 > autograd, fused softmax, and more `nn` layers are next
 > (see [ROADMAP.md](ROADMAP.md)).
 
@@ -177,7 +182,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 258 tests
+scripts/test.sh               # 261 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -220,7 +225,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, shuffling |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
-| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused last-dim log_softmax and cross-entropy, fused MSE/L1 losses, compile cache |
+| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused last-dim softmax/log_softmax and cross-entropy, fused MSE/L1 losses, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
 
 ## How the fusion engine works
@@ -272,8 +277,8 @@ and fallback rules.
 ## Honest limitations
 
 - Fusion handles elementwise expressions, `sum`/`mean`/`logsumexp`
-  reductions with first-order backward, last-dimension `log_softmax`, and
-  cross-entropy for class counts up to 4096; softmax itself is not fused yet.
+  reductions with first-order backward, last-dimension `softmax`/`log_softmax`,
+  and cross-entropy for class counts up to 4096.
 - `torch.fuse.train` supports **first-order** derivatives and requires the C
   backend; higher-order gradients and the LuaJIT-only fallback use eager
   autograd.

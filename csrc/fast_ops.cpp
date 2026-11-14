@@ -108,4 +108,82 @@ void lt_cross_entropy_backward_f64(
   }
 }
 
+void lt_softmax_f32(
+    const float* input, float* output, int64_t rows, int64_t columns) {
+  for (int64_t row = 0; row < rows; ++row) {
+    const float* source = input + row * columns;
+    float* destination = output + row * columns;
+    float maximum = -INFINITY;
+    for (int64_t column = 0; column < columns; ++column) {
+      if (source[column] > maximum) maximum = source[column];
+    }
+    float sum = 0.0f;
+    for (int64_t column = 0; column < columns; ++column) {
+      const float value = expf(source[column] - maximum);
+      destination[column] = value;
+      sum += value;
+    }
+    const float inverse = 1.0f / sum;
+    for (int64_t column = 0; column < columns; ++column) {
+      destination[column] *= inverse;
+    }
+  }
+}
+
+void lt_softmax_f64(
+    const double* input, double* output, int64_t rows, int64_t columns) {
+  for (int64_t row = 0; row < rows; ++row) {
+    const double* source = input + row * columns;
+    double* destination = output + row * columns;
+    double maximum = -INFINITY;
+    for (int64_t column = 0; column < columns; ++column) {
+      if (source[column] > maximum) maximum = source[column];
+    }
+    double sum = 0.0;
+    for (int64_t column = 0; column < columns; ++column) {
+      const double value = exp(source[column] - maximum);
+      destination[column] = value;
+      sum += value;
+    }
+    const double inverse = 1.0 / sum;
+    for (int64_t column = 0; column < columns; ++column) {
+      destination[column] *= inverse;
+    }
+  }
+}
+
+void lt_softmax_backward_f32(
+    const float* output, const float* grad_output, float* grad_input,
+    int64_t rows, int64_t columns) {
+  for (int64_t row = 0; row < rows; ++row) {
+    const float* source = output + row * columns;
+    const float* upstream = grad_output + row * columns;
+    float* destination = grad_input + row * columns;
+    float dot = 0.0f;
+    for (int64_t column = 0; column < columns; ++column) {
+      dot += upstream[column] * source[column];
+    }
+    for (int64_t column = 0; column < columns; ++column) {
+      destination[column] = source[column] * (upstream[column] - dot);
+    }
+  }
+}
+
+void lt_softmax_backward_f64(
+    const double* output, const double* grad_output, double* grad_input,
+    int64_t rows, int64_t columns) {
+  for (int64_t row = 0; row < rows; ++row) {
+    const double* source = output + row * columns;
+    const double* upstream = grad_output + row * columns;
+    double* destination = grad_input + row * columns;
+    double dot = 0.0;
+    for (int64_t column = 0; column < columns; ++column) {
+      dot += upstream[column] * source[column];
+    }
+    for (int64_t column = 0; column < columns; ++column) {
+      destination[column] = source[column] * (upstream[column] - dot);
+    }
+  }
+}
+
 }  // extern "C"

@@ -195,3 +195,34 @@ test("cross entropy falls back for large class counts", function()
   local expected = -(logits:log_softmax(2):gather(2, labels:reshape(4, 1))):mean()
   assert_true(loss:allclose(expected, 1e-5, 1e-6))
 end)
+
+test("fused softmax matches ATen values and gradients", function()
+  local lib = require("torch.lib").lib
+  local input = torch.randn(16, 7, { requires_grad = true })
+  local reference = input:detach():clone():requires_grad_(true)
+  local output = torch.softmax(input, 2)
+  local expected = torch.Tensor._wrap(lib.lt_softmax(reference.h, 1))
+  assert_true(output:allclose(expected, 1e-5, 1e-6))
+
+  local upstream = torch.randn(16, 7)
+  output:backward(upstream)
+  expected:backward(upstream)
+  assert_true(input:grad():allclose(reference:grad(), 1e-5, 1e-6))
+end)
+
+test("fused softmax handles 3D tensors and float64", function()
+  local lib = require("torch.lib").lib
+  local input = torch.randn(2, 3, 5, { dtype = torch.float64 })
+  local output = torch.softmax(input, 3)
+  local expected = torch.Tensor._wrap(lib.lt_softmax(input.h, 2))
+  assert_eq(output:dtype(), "float64")
+  assert_true(output:allclose(expected, 1e-6, 1e-7))
+end)
+
+test("softmax falls back for non-last dimensions", function()
+  local lib = require("torch.lib").lib
+  local input = torch.randn(4, 5)
+  local output = torch.softmax(input, 1)
+  local expected = torch.Tensor._wrap(lib.lt_softmax(input.h, 0))
+  assert_true(output:allclose(expected, 1e-5, 1e-6))
+end)
