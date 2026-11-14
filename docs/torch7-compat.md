@@ -72,6 +72,10 @@ lazily, and avoids intermediate tables.
 
 - **Lazy composition**: `fun.iter(x):map(f):filter(p)` walks the source once.
 - **No table allocations per stage**, unlike Moses' eager array results.
+- **Measured**: on a 200k-number `map → filter → reduce` pipeline, luafun is
+  about **5× faster than Moses** because it never materialises the intermediate
+  arrays (`bench/compare_moses.lua`). A single `map` is roughly a tie, since
+  both must allocate the output.
 - **MIT licensed** and a single file, so it ships inside `lua/fun.lua`.
 - **Tensors expose the same model**: `t:iter()` is a Lua iterator, `t:map` /
   `t:filter` / `t:reduce` are thin tensor-aware conveniences, and `t:fun()`

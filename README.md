@@ -72,6 +72,8 @@ scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL with torch preloaded
 ```
 
+Or via Make: `make build`, `make test`, `make bench`, `make repl`.
+
 If you already have libtorch installed, skip the download:
 
 ```bash
@@ -137,6 +139,7 @@ repeats, `scripts/bench.sh`):
 | matmul 128×128 float32 | ~0.06 ms |
 | small tensor add (16 elements) | ~3 µs per call round-trip |
 | luafun map+reduce over 200k | ~2.0 ms (plain Lua loop ~0.26 ms) |
+| luafun map+filter+reduce vs Moses, 200k | ~1.0 ms vs ~5.0 ms (≈5×) |
 | `torch.load` 100k float32 | ~0.2 ms |
 
 The dispatch overhead is a few microseconds; real workloads are dominated by

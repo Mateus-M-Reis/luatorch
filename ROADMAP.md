@@ -16,6 +16,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
 - [x] 120-test suite, benchmarks, API/design docs
+- [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
 ## v0.2 — tensor completeness
 
