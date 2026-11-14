@@ -1,4 +1,4 @@
-# luatorch API reference (0.5.1)
+# luatorch API reference (0.6.0)
 
 All examples assume:
 
@@ -69,6 +69,22 @@ It supports first-order derivatives of the elementwise operations above and
 requires the C backend. Unsupported expressions, missing derivative rules, or
 the absence of `gcc` fall back to eager autograd. `train_fused.last_error`
 explains the fallback.
+
+`torch.fuse.reduce(fn, reduction)` (alias `torch.fuse_reduce`) fuses an
+elementwise expression directly into a scalar reduction, avoiding the
+intermediate tensor:
+
+```lua
+local mse = torch.fuse.reduce(function(prediction, target)
+  return (prediction - target) ^ 2
+end, "mean")
+
+local loss = mse(prediction, target)   -- 0-dim tensor
+```
+
+`reduction` is `"sum"` or `"mean"`. The reduction is forward-only: inputs that
+require grad, unsupported expressions, or a missing C compiler fall back to
+eager expression + reduction. `reduce.last_error` explains the fallback.
 
 ## Dtypes
 
@@ -433,6 +449,6 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.5.1")
+torch.VERSION             -- luatorch version string ("0.6.0")
 torch.version             -- libtorch version string
 ```

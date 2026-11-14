@@ -343,6 +343,7 @@ function Fused:_execute(given_output, ...)
       local value_dtype = value:dtype_id()
       if dtype == nil then
         dtype = value_dtype
+        dtype_name = value:dtype()
         shape = value:sizes()
       elseif value_dtype ~= dtype then
         return fallback()
@@ -531,6 +532,149 @@ Fused.__tostring = function(self)
   return string.format("Fused(%d kernels)", compiled)
 end
 
+-- Fused reductions ----------------------------------------------------------
+
+local FusedReduce = {}
+FusedReduce.__index = FusedReduce
+
+function FusedReduce.new(function_value, reduction, options)
+  if type(function_value) ~= "function" then
+    error("torch.fuse.reduce expects a function", 2)
+  end
+  if reduction ~= "sum" and reduction ~= "mean" then
+    error("torch.fuse.reduce expects 'sum' or 'mean'", 2)
+  end
+  return setmetatable({
+    fn = function_value,
+    reduction = reduction,
+    options = options or {},
+    traces = {},
+    kernels = {},
+    last_error = nil,
+  }, FusedReduce)
+end
+
+function FusedReduce:run(...)
+  local count = select("#", ...)
+  local args = pack(...)
+
+  local function fallback()
+    local result = self.fn(unpack(args, 1, count))
+    if self.reduction == "mean" then
+      return result:mean()
+    end
+    return result:sum()
+  end
+
+  local signature_parts = {}
+  local dtype = nil
+  local dtype_name = nil
+  local shape = nil
+  local tensor_count, scalar_count = 0, 0
+
+  for index = 1, count do
+    local value = args[index]
+    if Tensor.is_tensor(value) then
+      if value:requires_grad() then
+        return fallback()
+      end
+      signature_parts[index] = "T"
+      tensor_count = tensor_count + 1
+      local value_dtype = value:dtype_id()
+      if dtype == nil then
+        dtype = value_dtype
+        dtype_name = value:dtype()
+        shape = value:sizes()
+      elseif value_dtype ~= dtype then
+        return fallback()
+      end
+      local sizes = value:sizes()
+      if #sizes ~= #shape then
+        return fallback()
+      end
+      for dimension = 1, #sizes do
+        if sizes[dimension] ~= shape[dimension] then
+          return fallback()
+        end
+      end
+    elseif type(value) == "number" then
+      signature_parts[index] = "S"
+      scalar_count = scalar_count + 1
+    else
+      return fallback()
+    end
+  end
+
+  if shape == nil or tensor_count == 0 or (dtype ~= 0 and dtype ~= 1) then
+    return fallback()
+  end
+
+  local signature = table.concat(signature_parts)
+  local expression = self.traces[signature]
+  if expression == nil then
+    local traced, error_message = trace(self.fn, args)
+    if traced == nil then
+      self.traces[signature] = false
+      self.last_error = error_message
+      return fallback()
+    end
+    expression = traced
+    self.traces[signature] = expression
+  elseif expression == false then
+    return fallback()
+  end
+
+  local key = signature .. "|" .. dtype
+  local kernel = self.kernels[key]
+  if kernel == nil then
+    local compiled, error_message = fusec.compile_reduce(
+      expression, signature, dtype, self.reduction)
+    if compiled == nil then
+      self.traces[signature] = false
+      self.last_error = error_message
+      return fallback()
+    end
+    kernel = compiled
+    self.kernels[key] = kernel
+  end
+
+  local output = Tensor._create("empty", {}, { dtype = dtype })
+  local pointers = ffi.new("const void*[?]", tensor_count + 1)
+  local scalars = ffi.new("double[?]", math.max(scalar_count, 1))
+  local tensor_index, scalar_index = 0, 0
+  for index = 1, count do
+    if signature_parts[index] == "T" then
+      local contiguous = args[index]:contiguous()
+      pointers[tensor_index] = lib.lt_data_ptr(contiguous.h)
+      tensor_index = tensor_index + 1
+      args[index] = contiguous
+    else
+      scalars[scalar_index] = args[index]
+      scalar_index = scalar_index + 1
+    end
+  end
+  pointers[tensor_count] = lib.lt_data_ptr(output.h)
+
+  local elements = 0
+  for index = 1, count do
+    if signature_parts[index] == "T" then
+      elements = args[index]:numel()
+      break
+    end
+  end
+
+  kernel(pointers, scalars, elements, lib.lt_get_num_threads())
+  return output
+end
+
+FusedReduce.__call = function(self, ...)
+  return self:run(...)
+end
+
+FusedReduce.__tostring = function(self)
+  return string.format("FusedReduce(%s)", self.reduction)
+end
+
 -- Fused forward + backward through the C++ autograd bridge -----------------
 
 local FusedTrain = {}
@@ -559,6 +703,7 @@ function FusedTrain:run(...)
 
   local signature_parts = {}
   local dtype = nil
+  local dtype_name = nil
   local shape = nil
   local tensor_count, scalar_count = 0, 0
 
@@ -570,6 +715,7 @@ function FusedTrain:run(...)
       local value_dtype = value:dtype_id()
       if dtype == nil then
         dtype = value_dtype
+        dtype_name = value:dtype()
         shape = value:sizes()
       elseif value_dtype ~= dtype then
         return fallback()
@@ -674,6 +820,9 @@ local fuse_module = setmetatable({}, {
 })
 fuse_module.train = function(function_value, options)
   return FusedTrain.new(function_value, options)
+end
+fuse_module.reduce = function(function_value, reduction, options)
+  return FusedReduce.new(function_value, reduction, options)
 end
 
 return fuse_module

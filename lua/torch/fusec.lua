@@ -93,7 +93,7 @@ local function emit(node, context)
 
   if op == "tensor_arg" then
     value = new_temporary(context, ctype,
-      string.format("t%d[i]", node.arg))
+      string.format("t%d[%s]", node.arg, context.index or "i"))
   elseif op == "scalar_arg" then
     value = "s" .. node.arg
   else
@@ -674,6 +674,101 @@ local function generate_backward(expression, signature, dtype)
   return source
 end
 
+local function generate_reduce(expression, signature, dtype, reduction)
+  local info = type_info[dtype]
+  if info == nil then
+    return nil, "unsupported dtype for fused reduction"
+  end
+  if reduction ~= "sum" and reduction ~= "mean" then
+    return nil, "fused reduction must be 'sum' or 'mean'"
+  end
+
+  local context = {
+    lines = {},
+    counter = 0,
+    memo = {},
+    info = info,
+    index = "i",
+  }
+  local result = emit(expression, context)
+  if result == nil then
+    return nil, "fused reduction expression could not be emitted"
+  end
+
+  local parameters = {}
+  local call_arguments = {}
+  local prelude = {}
+  local tensor_count = 0
+  local scalar_count = 0
+  for index = 1, #signature do
+    if signature:sub(index, index) == "T" then
+      parameters[#parameters + 1] = string.format(
+        "const %s* __restrict t%d", info.ctype, index)
+      call_arguments[#call_arguments + 1] = "t" .. index
+      prelude[#prelude + 1] = string.format(
+        "  const %s* __restrict t%d = (const %s*)ptrs[%d];",
+        info.ctype, index, info.ctype, tensor_count)
+      tensor_count = tensor_count + 1
+    else
+      parameters[#parameters + 1] = string.format(
+        "const %s s%d", info.ctype, index)
+      call_arguments[#call_arguments + 1] = "s" .. index
+      prelude[#prelude + 1] = string.format(
+        "  const %s s%d = (%s)scalars[%d];",
+        info.ctype, index, info.ctype, scalar_count)
+      scalar_count = scalar_count + 1
+    end
+  end
+
+  parameters[#parameters + 1] = "int64_t i"
+
+  local argument_prefix = #call_arguments > 0
+    and (table.concat(call_arguments, ", ") .. ", ")
+    or ""
+
+  local helper = table.concat({
+    "#include <stdint.h>",
+    "#include <math.h>",
+    "",
+    string.format("static inline %s luatorch_expr(%s) {",
+      info.ctype, table.concat(parameters, ", ")),
+    table.concat(context.lines, "\n"),
+    "  return " .. result .. ";",
+    "}",
+    "",
+  }, "\n")
+
+  local reduction_line
+  if reduction == "mean" then
+    reduction_line = "  out[0] = n > 0 ? total / ((" .. info.ctype .. ")n) : 0;"
+  else
+    reduction_line = "  out[0] = total;"
+  end
+
+  local kernel = table.concat({
+    helper,
+    "void luatorch_kernel(const void** ptrs, const double* scalars, int64_t n, int threads) {",
+    table.concat(prelude, "\n"),
+    string.format("  %s* __restrict out = (%s*)ptrs[%d];", info.ctype, info.ctype, tensor_count),
+    string.format("  %s a0 = 0, a1 = 0, a2 = 0, a3 = 0;", info.ctype),
+    "  int64_t i = 0;",
+    "  for (; i + 3 < n; i += 4) {",
+    "    a0 += luatorch_expr(" .. argument_prefix .. "i);",
+    "    a1 += luatorch_expr(" .. argument_prefix .. "i + 1);",
+    "    a2 += luatorch_expr(" .. argument_prefix .. "i + 2);",
+    "    a3 += luatorch_expr(" .. argument_prefix .. "i + 3);",
+    "  }",
+    "  for (; i < n; ++i) {",
+    "    a0 += luatorch_expr(" .. argument_prefix .. "i);",
+    "  }",
+    string.format("  const %s total = (a0 + a1) + (a2 + a3);", info.ctype),
+    reduction_line,
+    "}",
+    "",
+  }, "\n")
+  return kernel
+end
+
 local function hash(text)
   local value = 2166136261
   for index = 1, #text do
@@ -768,6 +863,19 @@ function M.compile_train(expression, signature, dtype)
     backward = library.luatorch_backward,
     library = library,
   }
+end
+
+function M.compile_reduce(expression, signature, dtype, reduction)
+  local source, error_message = generate_reduce(
+    expression, signature, dtype, reduction)
+  if source == nil then
+    return nil, error_message
+  end
+  local library, compile_error = compile_source(source)
+  if library == nil then
+    return nil, compile_error
+  end
+  return library.luatorch_kernel
 end
 
 return M

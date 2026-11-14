@@ -183,7 +183,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 240 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 245 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
@@ -219,6 +219,20 @@ Two implementation details matter for speed:
   full collection when the total crosses 64 MB. Finalizers use
   `lt_free_counted`, which deliberately does not clear the thread-local error
   (otherwise a GC during `ffi.string` can erase an error message being read).
+
+Fused reductions use a third code shape: an inlined expression helper and four
+independent accumulators. The helper is generated from the same expression
+tree, so reduction kernels never materialise the elementwise result:
+
+```c
+static inline float luatorch_expr(..., int64_t i) { ... }
+a0 += luatorch_expr(..., i); ... total = (a0+a1)+(a2+a3);
+out[0] = total / n;
+```
+
+`torch.fuse.reduce(fn, "sum"|"mean")` returns a 0-dim tensor and falls back to
+eager expression + reduction when gradients are required or the compiler is
+missing.
 
 Fused training adds a second ABI:
 

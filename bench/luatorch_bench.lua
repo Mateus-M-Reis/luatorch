@@ -119,6 +119,30 @@ best("mlp_adam_step", 50, function()
 end)
 best("mlp_train_step", 50, mlp_step)
 
+-- Fused reductions ---------------------------------------------------------
+local reduce_a = torch.randn(n)
+local reduce_b = torch.randn(n)
+local reduce_c = torch.randn(n)
+local reduce_mse = torch.fuse_reduce(function(a, b)
+  return (a - b) ^ 2
+end, "mean")
+local reduce_chain = torch.fuse_reduce(function(a, b, c)
+  return ((a - b) ^ 2 + c * 0.5):relu()
+end, "mean")
+
+best("mse_fused", 50, function()
+  reduce_mse(reduce_a, reduce_b)
+end)
+best("mse_eager", 50, function()
+  ((reduce_a - reduce_b) ^ 2):mean()
+end)
+best("reduce_chain_fused", 50, function()
+  reduce_chain(reduce_a, reduce_b, reduce_c)
+end)
+best("reduce_chain_eager", 50, function()
+  ((reduce_a - reduce_b) ^ 2 + reduce_c * 0.5):relu():mean()
+end)
+
 -- Fused autograd training --------------------------------------------------
 local train_x = torch.randn(n, { requires_grad = true })
 local train_y = torch.randn(n, { requires_grad = true })
