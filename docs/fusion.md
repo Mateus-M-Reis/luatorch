@@ -149,12 +149,14 @@ Measured on 1M floats:
 
 | expression | fused | eager ATen | speedup |
 | --- | ---: | ---: | ---: |
-| `mean((a-b)^2)` forward | 1.67 ms | 1.81 ms | 1.08x |
-| `mean(relu((a-b)^2 + c*0.5))` forward | 2.25 ms | 4.11 ms | 1.83x |
-| MSE loss + backward | 5.2 ms | 12.8 ms | 2.47x |
+| `mean((a-b)^2)` forward | 0.45 ms | 1.74 ms | 3.87x |
+| `mean(relu((a-b)^2 + c*0.5))` forward | 0.61 ms | 4.04 ms | 6.57x |
+| MSE loss + backward | 4.36 ms | 11.55 ms | 2.65x |
 
-Simple forward MSE is memory-bound and nearly ties; longer chains and the
-trainable path win because eager launches several kernels per direction.
+Reduction kernels are compiled with `-ffast-math` so GCC can vectorise the
+four independent accumulators. That reassociates the sum: relative error is
+about `1e-5` on 1M elements, which is fine for metrics and losses. Inference and
+training kernels stay precise; only reductions opt into fast-math.
 
 ## Fused training
 
@@ -255,9 +257,9 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 | MLP Adam step | **0.224 ms** | 1.137 ms | **5.08x** | — |
 | MLP train step | **3.97 ms** | 5.12 ms | **1.29x** | — |
 | chain train step, fused | 11.6 ms | 14.6 ms | **1.26x** | — |
-| `mean((a-b)^2)` fused | 1.67 ms | 1.81 ms | **1.08x** | — |
-| `mean(relu((a-b)^2 + c*0.5))` fused | 2.25 ms | 4.11 ms | **1.83x** | — |
-| MSE loss + backward fused | 5.2 ms | 12.8 ms | **2.47x** | — |
+| `mean((a-b)^2)` fused | 0.45 ms | 1.74 ms | **3.87x** | — |
+| `mean(relu((a-b)^2 + c*0.5))` fused | 0.61 ms | 4.04 ms | **6.57x** | — |
+| MSE loss + backward fused | 4.36 ms | 11.55 ms | **2.65x** | — |
 
 Caveats:
 

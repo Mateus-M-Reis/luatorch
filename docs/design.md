@@ -230,6 +230,11 @@ a0 += luatorch_expr(..., i); ... total = (a0+a1)+(a2+a3);
 out[0] = total / n;
 ```
 
+Reduction kernels opt into `-ffast-math` so GCC can vectorise the accumulator
+loops; the cache key includes the flags. The resulting sum is reassociated
+(relative error ~1e-5 on 1M elements), which is appropriate for metrics and
+losses. Other fusion kernels remain precise.
+
 `torch.fuse.reduce(fn, "sum"|"mean")` returns a 0-dim tensor. When inputs
 require grad, a reduce backward kernel is generated (`derivative * grad_output`,
 divided by `n` for `mean`) and driven by a C++ reduction autograd Function; this

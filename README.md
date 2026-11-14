@@ -63,9 +63,9 @@ Ryzen 3 machine. Eager and compiled PyTorch are shown separately because
 | **MLP Adam step** | **0.224 ms** | 1.137 ms | **5.08x** | — | — |
 | **MLP train step** | **3.97 ms** | 5.12 ms | **1.29x** | — | — |
 | chain train step, fused | 11.6 ms | 14.6 ms | **1.26x** | — | — |
-| MSE reduce, fused | 1.67 ms | 1.81 ms | **1.08x** | — | — |
-| chain reduce, fused | 2.25 ms | 4.11 ms | **1.83x** | — | — |
-| MSE loss train, fused | 5.2 ms | 12.8 ms | **2.47x** | — | — |
+| MSE reduce, fused | 0.45 ms | 1.74 ms | **3.87x** | — | — |
+| chain reduce, fused | 0.61 ms | 4.04 ms | **6.57x** | — | — |
+| MSE loss train, fused | 4.36 ms | 11.55 ms | **2.65x** | — | — |
 
 What the table actually says:
 
@@ -79,10 +79,12 @@ What the table actually says:
   about 1.2–1.5x faster than eager PyTorch in best-of runs, less than the
   inference speedup because the custom autograd node and gradient allocations
   have fixed overhead.
-- **Fused reductions help longer expressions.** A simple forward MSE is
-  memory-bound and only ~1.1x faster; a two-op chain with a ReLU reduction is
-  ~1.8x faster. Trainable MSE is the bigger win: forward and backward are each
-  one fused pass, making the full loss step **~2.5x** faster than eager.
+- **Fused reductions are a major win.** Compiling reduction kernels with
+  `-ffast-math` lets GCC vectorise the four accumulators: MSE drops to 0.45 ms
+  (**3.9x**), a two-op ReLU chain to 0.61 ms (**6.6x**), and the full trainable
+  MSE step to **2.65x** faster than eager. The trade-off is reassociated
+  summation: relative error is ~1e-5 on 1M elements, well inside metric/loss
+  tolerance.
 - **Single additions and GEMM are parity-to-tie.** GEMM uses the same BLAS-class
   kernels; single out-of-place adds are dominated by allocation/free behavior.
 - **Small tensors** are 1.1–1.4x faster thanks to lower dispatch overhead.
@@ -91,7 +93,7 @@ What the table actually says:
 
 ## Status
 
-> **0.6.3 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.6.4 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean` reductions with backward
 > are implemented and covered by **248 tests**. CUDA, higher-order autograd,

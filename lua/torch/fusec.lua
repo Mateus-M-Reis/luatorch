@@ -799,7 +799,8 @@ function M.available()
   return M._available
 end
 
-local function compile_source(source)
+local function compile_source(source, extra_flags)
+  extra_flags = extra_flags or ""
   if not M.available() then
     return nil, "no C compiler available"
   end
@@ -807,7 +808,7 @@ local function compile_source(source)
   local cache_dir = os.getenv("LUATORCH_CACHE") or ".luatorch-cache"
   os.execute("mkdir -p '" .. cache_dir .. "' 2>/dev/null")
 
-  local key = hash(source)
+  local key = hash(source .. "|" .. extra_flags)
   local c_path = cache_dir .. "/" .. key .. ".c"
   local so_path = cache_dir .. "/" .. key .. ".so"
   local log_path = cache_dir .. "/" .. key .. ".log"
@@ -821,8 +822,8 @@ local function compile_source(source)
     file:close()
 
     local command = string.format(
-      "gcc -O3 -march=native -fPIC -shared -fopenmp -fno-math-errno " ..
-      "-o '%s' '%s' -lm 2> '%s'", so_path, c_path, log_path)
+      "gcc -O3 -march=native %s -fPIC -shared -fopenmp " ..
+      "-o '%s' '%s' -lm 2> '%s'", extra_flags, so_path, c_path, log_path)
     local status = os.execute(command)
     if status ~= 0 and status ~= true then
       local log = io.open(log_path, "rb")
@@ -862,7 +863,8 @@ function M.compile_train(expression, signature, dtype)
   if backward == nil then
     return nil, backward_error
   end
-  local library, compile_error = compile_source(forward .. "\n" .. backward)
+  local library, compile_error = compile_source(
+    forward .. "\n" .. backward)
   if library == nil then
     return nil, compile_error
   end
@@ -879,7 +881,7 @@ function M.compile_reduce(expression, signature, dtype, reduction)
   if source == nil then
     return nil, error_message
   end
-  local library, compile_error = compile_source(source)
+  local library, compile_error = compile_source(source, "-ffast-math")
   if library == nil then
     return nil, compile_error
   end
@@ -900,7 +902,8 @@ function M.compile_reduce_train(expression, signature, dtype, reduction)
   if backward == nil then
     return nil, backward_error
   end
-  local library, compile_error = compile_source(forward .. "\n" .. backward)
+  local library, compile_error = compile_source(
+    forward .. "\n" .. backward, "-ffast-math")
   if library == nil then
     return nil, compile_error
   end
