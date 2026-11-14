@@ -1,4 +1,4 @@
-# luatorch API reference (0.5.0)
+# luatorch API reference (0.5.1)
 
 All examples assume:
 
@@ -433,6 +433,6 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.5.0")
+torch.VERSION             -- luatorch version string ("0.5.1")
 torch.version             -- libtorch version string
 ```

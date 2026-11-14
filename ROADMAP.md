@@ -17,7 +17,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Autograd: `requires_grad`, `backward`, `grad`, `detach`, `no_grad`
 - [x] PyTorch `.pt` serialization
 - [x] luafun integration (`torch.fun`, `Tensor:iter/map/filter/reduce`, `t:fun()`)
-- [x] 239-test suite, benchmarks, API/design docs
+- [x] 240-test suite, benchmarks, API/design docs
 - [x] Moses-vs-luafun benchmark documenting the functional-layer choice
 
 ## v0.2 — neural networks (done)

@@ -98,3 +98,13 @@ test("new layers survive state_dict roundtrips", function()
     assert_true(restored:state_dict()[name]:equal(tensor), "mismatch for " .. name)
   end
 end)
+
+test("Linear supports 3D inputs", function()
+  local nn = require("torch.nn")
+  local layer = nn.Linear(5, 3)
+  local input = torch.randn(2, 4, 5)
+  local output = layer(input)
+  assert_eq(output:sizes(), { 2, 4, 3 })
+  local reference = input:matmul(layer.weight:t()):add(layer.bias)
+  assert_true(output:allclose(reference, 1e-5, 1e-6))
+end)

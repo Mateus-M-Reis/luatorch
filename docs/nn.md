@@ -212,6 +212,12 @@ All optimizers take `(parameters, options)` and expose `step()` and
 Passing a number as options means `{lr = number}`. Per-parameter state is keyed
 by tensor identity.
 
+### Linear
+
+`nn.Linear` uses a single `addmm` for 2D inputs, folding the bias into the
+matrix multiply. Higher-rank inputs are flattened to 2D, projected, and
+reshaped back. This avoids a separate bias kernel and temporary.
+
 ### Fused update kernels
 
 Adam, AdamW and SGD execute their update in a single C kernel over contiguous

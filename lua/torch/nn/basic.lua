@@ -39,11 +39,24 @@ function Linear.new(in_features, out_features, bias)
 end
 
 function Linear:forward(input)
-  local output = input:matmul(self.weight:t())
   if self.bias then
-    output = output:add(self.bias)
+    if input:dim() == 2 then
+      -- One addmm kernel instead of matmul + separate bias add.
+      return self.bias:addmm(input, self.weight:t())
+    elseif input:dim() > 2 then
+      local sizes = input:sizes()
+      local flattened = input:reshape(-1, self.in_features)
+      local output = self.bias:addmm(flattened, self.weight:t())
+      local output_sizes = {}
+      for index = 1, #sizes - 1 do
+        output_sizes[index] = sizes[index]
+      end
+      output_sizes[#output_sizes + 1] = self.out_features
+      return output:reshape(output_sizes)
+    end
+    return input:matmul(self.weight:t()):add(self.bias)
   end
-  return output
+  return input:matmul(self.weight:t())
 end
 
 function Linear:_refresh_aliases()

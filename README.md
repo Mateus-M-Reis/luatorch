@@ -84,9 +84,9 @@ What the table actually says:
 
 ## Status
 
-> **0.5.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.5.1 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates, and
-> first-order fused backward are implemented and covered by **239 tests**.
+> first-order fused backward are implemented and covered by **240 tests**.
 > CUDA, fused reductions, higher-order autograd, and more `nn` layers are next
 > (see [ROADMAP.md](ROADMAP.md)).
 
@@ -154,7 +154,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 239 tests
+scripts/test.sh               # 240 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
