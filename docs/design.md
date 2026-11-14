@@ -183,7 +183,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 256 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 258 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
@@ -220,9 +220,11 @@ Two implementation details matter for speed:
   `lt_free_counted`, which deliberately does not clear the thread-local error
   (otherwise a GC during `ffi.string` can erase an error message being read).
 
-Last-dimension `log_softmax` is a fixed operation rather than a traced
-expression, so its fast-math kernels live in `csrc/fast_ops.cpp`, compiled with
-`-ffast-math` while the main shim stays precise. A C++ autograd Function saves
+Last-dimension `log_softmax` and cross-entropy are fixed operations rather than
+traced expressions, so their fast-math kernels live in `csrc/fast_ops.cpp`,
+compiled with `-ffast-math` while the main shim stays precise. Cross-entropy
+reuses the log-softmax kernel, gathers the target log-probability, and uses a
+softmax-minus-onehot backward. A C++ autograd Function saves
 the log-probabilities and uses `dy - exp(y) * sum(dy)` for the backward.
 
 Fused reductions use a third code shape: an inlined expression helper and four

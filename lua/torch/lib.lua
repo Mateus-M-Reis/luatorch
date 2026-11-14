@@ -178,6 +178,7 @@ lt_tensor* lt_layer_norm(
     lt_tensor* input, const lt_tensor* weight, const lt_tensor* bias,
     int64_t ndim, const int64_t* normalized_shape, double eps);
 lt_tensor* lt_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction);
+lt_tensor* lt_fused_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction);
 lt_tensor* lt_nll_loss(lt_tensor* input, lt_tensor* target, int64_t reduction);
 lt_tensor* lt_binary_cross_entropy_with_logits(lt_tensor* input, lt_tensor* target, int64_t reduction);
 int        lt_uniform_(lt_tensor* t, double low, double high);

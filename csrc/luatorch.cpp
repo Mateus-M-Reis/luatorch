@@ -22,6 +22,10 @@ void lt_log_softmax_backward_f32(
     const float*, const float*, float*, int64_t, int64_t);
 void lt_log_softmax_backward_f64(
     const double*, const double*, double*, int64_t, int64_t);
+void lt_cross_entropy_backward_f32(
+    const float*, const int64_t*, float*, double, int64_t, int64_t);
+void lt_cross_entropy_backward_f64(
+    const double*, const int64_t*, double*, double, int64_t, int64_t);
 }
 #include <torch/serialize.h>
 #include <torch/version.h>
@@ -958,6 +962,114 @@ class FusedLogSoftmaxFunction
           gradient.mutable_data_ptr<double>(), rows, columns);
     }
     return {gradient};
+  }
+};
+
+class FusedCrossEntropyFunction
+    : public torch::autograd::Function<FusedCrossEntropyFunction> {
+ public:
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx,
+      at::Tensor logits, at::Tensor target, int64_t reduction) {
+    if (logits.dim() != 2 || target.dim() != 1 ||
+        target.size(0) != logits.size(0)) {
+      throw std::runtime_error("fused cross_entropy shape mismatch");
+    }
+    if (target.scalar_type() != at::kLong) {
+      throw std::runtime_error("fused cross_entropy expects int64 targets");
+    }
+    const auto dtype = logits.scalar_type();
+    if (dtype != at::kFloat && dtype != at::kDouble) {
+      throw std::runtime_error(
+          "fused cross_entropy supports float32/float64 only");
+    }
+    if (reduction != 1 && reduction != 2) {
+      throw std::runtime_error(
+          "fused cross_entropy supports mean/sum reductions");
+    }
+    at::Tensor logits_contiguous = logits.contiguous();
+    at::Tensor target_contiguous = target.contiguous();
+    const int64_t rows = logits_contiguous.size(0);
+    const int64_t columns = logits_contiguous.size(1);
+    if (rows <= 0 || columns <= 0) {
+      throw std::runtime_error("fused cross_entropy needs a non-empty input");
+    }
+    const int64_t* labels = target_contiguous.const_data_ptr<int64_t>();
+    for (int64_t row = 0; row < rows; ++row) {
+      if (labels[row] < 0 || labels[row] >= columns) {
+        throw std::runtime_error("fused cross_entropy target out of range");
+      }
+    }
+
+    at::Tensor log_probabilities = at::empty_like(logits_contiguous);
+    double total = 0.0;
+    if (dtype == at::kFloat) {
+      lt_log_softmax_f32(
+          logits_contiguous.const_data_ptr<float>(),
+          log_probabilities.mutable_data_ptr<float>(), rows, columns);
+      const float* data = log_probabilities.const_data_ptr<float>();
+      for (int64_t row = 0; row < rows; ++row) {
+        total -= static_cast<double>(data[row * columns + labels[row]]);
+      }
+    } else {
+      lt_log_softmax_f64(
+          logits_contiguous.const_data_ptr<double>(),
+          log_probabilities.mutable_data_ptr<double>(), rows, columns);
+      const double* data = log_probabilities.const_data_ptr<double>();
+      for (int64_t row = 0; row < rows; ++row) {
+        total -= data[row * columns + labels[row]];
+      }
+    }
+    const double scale = reduction == 1 ? 1.0 / static_cast<double>(rows) : 1.0;
+    at::Tensor loss = at::empty(
+        at::IntArrayRef{},
+        at::TensorOptions().dtype(dtype).device(logits_contiguous.device()));
+    if (dtype == at::kFloat) {
+      loss.mutable_data_ptr<float>()[0] = static_cast<float>(total * scale);
+    } else {
+      loss.mutable_data_ptr<double>()[0] = total * scale;
+    }
+
+    ctx->save_for_backward({log_probabilities, target_contiguous});
+    ctx->saved_data["reduction"] = reduction;
+    return {loss};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto saved = ctx->get_saved_variables();
+    at::Tensor log_probabilities = saved[0];
+    at::Tensor target = saved[1];
+    const int64_t reduction = ctx->saved_data["reduction"].toInt();
+    if (grad_outputs.empty() || !grad_outputs[0].defined()) {
+      return {at::Tensor(), at::Tensor(), at::Tensor()};
+    }
+    at::Tensor grad_output = grad_outputs[0].contiguous();
+    const int64_t rows = log_probabilities.size(0);
+    const int64_t columns = log_probabilities.size(1);
+    double scale;
+    if (log_probabilities.scalar_type() == at::kFloat) {
+      scale = static_cast<double>(grad_output.const_data_ptr<float>()[0]);
+    } else {
+      scale = grad_output.const_data_ptr<double>()[0];
+    }
+    if (reduction == 1) {
+      scale /= static_cast<double>(rows);
+    }
+    at::Tensor grad_logits = at::empty_like(log_probabilities);
+    if (log_probabilities.scalar_type() == at::kFloat) {
+      lt_cross_entropy_backward_f32(
+          log_probabilities.const_data_ptr<float>(),
+          target.const_data_ptr<int64_t>(),
+          grad_logits.mutable_data_ptr<float>(), scale, rows, columns);
+    } else {
+      lt_cross_entropy_backward_f64(
+          log_probabilities.const_data_ptr<double>(),
+          target.const_data_ptr<int64_t>(),
+          grad_logits.mutable_data_ptr<double>(), scale, rows, columns);
+    }
+    return {grad_logits, at::Tensor(), at::Tensor()};
   }
 };
 
@@ -1994,6 +2106,25 @@ lt_tensor* lt_layer_norm(
         eps));
   }
   LT_CATCH_NULL
+}
+
+lt_tensor* lt_fused_cross_entropy(
+    lt_tensor* input, lt_tensor* target, int64_t reduction) {
+  try {
+    clear_error();
+    auto outputs = FusedCrossEntropyFunction::apply(
+        input->t, target->t, reduction);
+    if (outputs.empty()) {
+      throw std::runtime_error("fused cross_entropy returned no output");
+    }
+    return wrap(outputs[0]);
+  } catch (const std::exception& error) {
+    set_error(error);
+    return nullptr;
+  } catch (...) {
+    set_error("unknown native error in fused cross_entropy");
+    return nullptr;
+  }
 }
 
 lt_tensor* lt_cross_entropy(lt_tensor* input, lt_tensor* target, int64_t reduction) {

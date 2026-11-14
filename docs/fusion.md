@@ -180,6 +180,9 @@ dtypes, or empty rows fall back to ATen.
 | 4096×256 forward | 1.21 ms | 2.11 ms | 1.74x |
 | forward + backward | 3.50 ms | 4.78 ms | 1.37x |
 
+`cross_entropy` on 2D logits with mean/sum reduction reuses that kernel and a
+fast softmax-minus-onehot backward; class counts above 4096 fall back to ATen.
+
 The fast-math kernels live in `csrc/fast_ops.cpp`, compiled separately from the
 precise ATen shim.
 
@@ -307,8 +310,8 @@ Caveats:
 ## Limitations and next steps
 
 - Fused reductions cover `sum`/`mean`/`logsumexp` with first-order backward;
-  last-dimension `log_softmax` is fused. Softmax, layernorm, convolution, and
-  matmul epilogues are not fused yet.
+  last-dimension `log_softmax` and cross-entropy (≤4096 classes) are fused.
+  Softmax, layernorm, convolution, and matmul epilogues are not fused yet.
 - Fused backward is first-order and C-backend only; second-order gradients and
   the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec

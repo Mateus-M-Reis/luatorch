@@ -81,4 +81,31 @@ void lt_log_softmax_backward_f64(
   }
 }
 
+void lt_cross_entropy_backward_f32(
+    const float* log_probabilities, const int64_t* targets,
+    float* grad_logits, double scale, int64_t rows, int64_t columns) {
+  const float scale_f = static_cast<float>(scale);
+  for (int64_t row = 0; row < rows; ++row) {
+    const float* source = log_probabilities + row * columns;
+    float* destination = grad_logits + row * columns;
+    for (int64_t column = 0; column < columns; ++column) {
+      destination[column] = expf(source[column]) * scale_f;
+    }
+    destination[targets[row]] -= scale_f;
+  }
+}
+
+void lt_cross_entropy_backward_f64(
+    const double* log_probabilities, const int64_t* targets,
+    double* grad_logits, double scale, int64_t rows, int64_t columns) {
+  for (int64_t row = 0; row < rows; ++row) {
+    const double* source = log_probabilities + row * columns;
+    double* destination = grad_logits + row * columns;
+    for (int64_t column = 0; column < columns; ++column) {
+      destination[column] = exp(source[column]) * scale;
+    }
+    destination[targets[row]] -= scale;
+  }
+}
+
 }  // extern "C"

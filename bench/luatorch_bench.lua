@@ -204,6 +204,14 @@ best("log_softmax_train_fused", 30, function()
   output:backward(log_softmax_upstream)
 end)
 
+local cross_entropy_input = torch.randn(4096, 256, { requires_grad = true })
+local cross_entropy_labels = torch.LongTensor(4096):fill_(1)
+best("cross_entropy_fused", 30, function()
+  cross_entropy_input:zero_grad()
+  local loss = torch.cross_entropy(cross_entropy_input, cross_entropy_labels)
+  loss:backward()
+end)
+
 -- Fused autograd training --------------------------------------------------
 local train_x = torch.randn(n, { requires_grad = true })
 local train_y = torch.randn(n, { requires_grad = true })

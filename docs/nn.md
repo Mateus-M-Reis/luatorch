@@ -160,7 +160,9 @@ end
 `reduction` is `"mean"` (default), `"sum"` or `"none"`.
 
 `nn.LogSoftmax` over the last dimension uses the fused log-softmax kernel
-(float32/float64); other dimensions fall back to ATen.
+(float32/float64); other dimensions fall back to ATen. `CrossEntropyLoss` on 2D
+float32/64 logits with mean/sum reduction uses a fused fast-math path when the
+class count is at most 4096; larger classifiers fall back to ATen.
 
 `MSELoss` and `L1Loss` use the fused one-pass reductions when input and target
 have the same shape and float32/float64 dtype (and reduction is not `"none"`).

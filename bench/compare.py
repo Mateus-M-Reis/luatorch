@@ -167,6 +167,17 @@ def run_pytorch(compile_chain):
 
     results["log_softmax_train_eager"] = best_of(30, log_softmax_train_eager)
 
+    cross_entropy_input = torch.randn(4096, 256, requires_grad=True)
+    cross_entropy_labels = torch.ones(4096, dtype=torch.long)
+
+    def cross_entropy_eager():
+        cross_entropy_input.grad = None
+        loss = torch.nn.functional.cross_entropy(
+            cross_entropy_input, cross_entropy_labels)
+        loss.backward()
+
+    results["cross_entropy_eager"] = best_of(30, cross_entropy_eager)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -209,6 +220,7 @@ def print_table(lua, torch_results, compiled):
         ("logsumexp train (fused)", "logsumexp_train_fused", "logsumexp_train_eager", None),
         ("log_softmax (fused)", "log_softmax_fused", "log_softmax_eager", None),
         ("log_softmax train (fused)", "log_softmax_train_fused", "log_softmax_train_eager", None),
+        ("cross_entropy 4096x256 (fused)", "cross_entropy_fused", "cross_entropy_eager", None),
         ("chain train (eager)", "chain_train", "chain_train", None),
         ("chain train (fused)", "chain_train_fused", "chain_train", None),
     ]

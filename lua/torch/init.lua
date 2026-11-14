@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.6.7"
+torch.VERSION = "0.6.8"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -463,7 +463,19 @@ function torch.cross_entropy(input, target, reduction)
   end
   -- Class labels are 1-based at the Lua surface; ATen expects 0-based targets.
   local zero_based = target:to(torch.int64):sub(1)
-  return Tensor._wrap(lib.lt_cross_entropy(input.h, zero_based.h, reduction_code(reduction)))
+  local code = reduction_code(reduction)
+  local dtype = input:dtype_id()
+  local sizes = input:sizes()
+  local class_count = #sizes >= 2 and sizes[2] or 0
+  if input:dim() == 2 and target:dim() == 1 and
+    (code == 1 or code == 2) and (dtype == 0 or dtype == 1) and
+    class_count <= 4096 then
+    local fused = lib.lt_fused_cross_entropy(input.h, zero_based.h, code)
+    if fused ~= nil then
+      return Tensor._wrap(fused)
+    end
+  end
+  return Tensor._wrap(lib.lt_cross_entropy(input.h, zero_based.h, code))
 end
 
 function torch.nll_loss(input, target, reduction)
