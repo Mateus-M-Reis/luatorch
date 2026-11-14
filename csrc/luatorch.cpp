@@ -412,6 +412,88 @@ void sgd_step_typed(
   }
 }
 
+template <typename scalar_t>
+void rmsprop_step_typed(
+    at::Tensor& parameter, const at::Tensor& gradient,
+    at::Tensor& square_avg, at::Tensor* grad_avg, at::Tensor* momentum_buffer,
+    double lr, double alpha, double eps, double weight_decay,
+    double momentum, bool centered) {
+  scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  scalar_t* __restrict square = square_avg.mutable_data_ptr<scalar_t>();
+  scalar_t* __restrict average_grad = grad_avg != nullptr
+      ? grad_avg->mutable_data_ptr<scalar_t>()
+      : nullptr;
+  scalar_t* __restrict buffer = momentum_buffer != nullptr
+      ? momentum_buffer->mutable_data_ptr<scalar_t>()
+      : nullptr;
+  const int64_t n = parameter.numel();
+
+  const scalar_t alpha_s = static_cast<scalar_t>(alpha);
+  const scalar_t one_minus_alpha = static_cast<scalar_t>(1.0 - alpha);
+  const scalar_t lr_s = static_cast<scalar_t>(lr);
+  const scalar_t eps_s = static_cast<scalar_t>(eps);
+  const scalar_t weight_decay_s = static_cast<scalar_t>(weight_decay);
+  const scalar_t momentum_s = static_cast<scalar_t>(momentum);
+
+  for (int64_t i = 0; i < n; ++i) {
+    scalar_t gradient_value = g[i];
+    if (weight_decay != 0.0) {
+      gradient_value += weight_decay_s * p[i];
+    }
+    const scalar_t square_value =
+        alpha_s * square[i] + one_minus_alpha * gradient_value * gradient_value;
+    square[i] = square_value;
+
+    scalar_t average = square_value;
+    if (centered) {
+      const scalar_t average_grad_value =
+          alpha_s * average_grad[i] + one_minus_alpha * gradient_value;
+      average_grad[i] = average_grad_value;
+      average -= average_grad_value * average_grad_value;
+    }
+
+    const scalar_t denominator = std::sqrt(average) + eps_s;
+    if (momentum != 0.0) {
+      const scalar_t buffer_value =
+          momentum_s * buffer[i] + gradient_value / denominator;
+      buffer[i] = buffer_value;
+      p[i] -= lr_s * buffer_value;
+    } else {
+      p[i] -= lr_s * gradient_value / denominator;
+    }
+  }
+}
+
+template <typename scalar_t>
+void adagrad_step_typed(
+    at::Tensor& parameter, const at::Tensor& gradient,
+    at::Tensor& sum,
+    double lr, double lr_decay, double weight_decay,
+    double eps, int64_t step) {
+  scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  scalar_t* __restrict accumulator = sum.mutable_data_ptr<scalar_t>();
+  const int64_t n = parameter.numel();
+
+  const scalar_t eps_s = static_cast<scalar_t>(eps);
+  const scalar_t weight_decay_s = static_cast<scalar_t>(weight_decay);
+  const scalar_t learning_rate = static_cast<scalar_t>(lr) /
+      (static_cast<scalar_t>(1) +
+       static_cast<scalar_t>((step - 1) * lr_decay));
+
+  for (int64_t i = 0; i < n; ++i) {
+    scalar_t gradient_value = g[i];
+    if (weight_decay != 0.0) {
+      gradient_value += weight_decay_s * p[i];
+    }
+    const scalar_t sum_value =
+        accumulator[i] + gradient_value * gradient_value;
+    accumulator[i] = sum_value;
+    p[i] -= learning_rate * gradient_value / (std::sqrt(sum_value) + eps_s);
+  }
+}
+
 }  // namespace
 
 int lt_adam_step(
@@ -788,6 +870,76 @@ LT_CREATE(ones, at::ones(make_shape(ndim, sizes), make_options(dtype)))
 LT_CREATE(empty, at::empty(make_shape(ndim, sizes), make_options(dtype)))
 LT_CREATE(rand, at::rand(make_shape(ndim, sizes), make_options(dtype)))
 LT_CREATE(randn, at::randn(make_shape(ndim, sizes), make_options(dtype)))
+
+int lt_rmsprop_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* square_avg, lt_tensor* grad_avg, lt_tensor* momentum_buffer,
+    double lr, double alpha, double eps, double weight_decay,
+    double momentum, int centered) {
+  try {
+    clear_error();
+    require_optimizer_tensor(parameter->t, gradient->t, "rmsprop_step gradient");
+    require_optimizer_tensor(parameter->t, square_avg->t, "rmsprop_step square_avg");
+    if (grad_avg != nullptr) {
+      require_optimizer_tensor(parameter->t, grad_avg->t, "rmsprop_step grad_avg");
+    }
+    if (momentum_buffer != nullptr) {
+      require_optimizer_tensor(
+          parameter->t, momentum_buffer->t, "rmsprop_step momentum_buffer");
+    }
+    if (centered != 0 && grad_avg == nullptr) {
+      throw std::runtime_error("rmsprop_step: centered requires grad_avg");
+    }
+    if (momentum != 0.0 && momentum_buffer == nullptr) {
+      throw std::runtime_error("rmsprop_step: momentum requires buffer");
+    }
+
+    if (parameter->t.scalar_type() == at::kFloat) {
+      rmsprop_step_typed<float>(parameter->t, gradient->t, square_avg->t,
+        grad_avg != nullptr ? &grad_avg->t : nullptr,
+        momentum_buffer != nullptr ? &momentum_buffer->t : nullptr,
+        lr, alpha, eps, weight_decay, momentum, centered != 0);
+    } else if (parameter->t.scalar_type() == at::kDouble) {
+      rmsprop_step_typed<double>(parameter->t, gradient->t, square_avg->t,
+        grad_avg != nullptr ? &grad_avg->t : nullptr,
+        momentum_buffer != nullptr ? &momentum_buffer->t : nullptr,
+        lr, alpha, eps, weight_decay, momentum, centered != 0);
+    } else {
+      throw std::runtime_error(
+          "rmsprop_step: float32 or float64 parameters required");
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_adagrad_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* sum,
+    double lr, double lr_decay, double weight_decay,
+    double eps, int64_t step) {
+  try {
+    clear_error();
+    if (step <= 0) {
+      throw std::runtime_error("adagrad_step: step must be positive");
+    }
+    require_optimizer_tensor(parameter->t, gradient->t, "adagrad_step gradient");
+    require_optimizer_tensor(parameter->t, sum->t, "adagrad_step sum");
+
+    if (parameter->t.scalar_type() == at::kFloat) {
+      adagrad_step_typed<float>(parameter->t, gradient->t, sum->t,
+        lr, lr_decay, weight_decay, eps, step);
+    } else if (parameter->t.scalar_type() == at::kDouble) {
+      adagrad_step_typed<double>(parameter->t, gradient->t, sum->t,
+        lr, lr_decay, weight_decay, eps, step);
+    } else {
+      throw std::runtime_error(
+          "adagrad_step: float32 or float64 parameters required");
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
 
 lt_tensor* lt_full(int64_t ndim, const int64_t* sizes, double value, int dtype) {
   try {

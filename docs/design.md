@@ -183,7 +183,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 246 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 248 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
@@ -256,8 +256,8 @@ as control flow. Fused training is first-order and C-backend only; the fixed
 cost of the custom node and gradient allocations makes its speedup (~1.3x) more
 modest than inference fusion (~5x).
 
-Optimizer updates use the same philosophy: Adam/AdamW/SGD are single C loops
-over `data_ptr`, with `__restrict` pointers and `-O3 -march=native
+Optimizer updates use the same philosophy: Adam/AdamW/SGD/RMSprop/Adagrad are
+single C loops over `data_ptr`, with `__restrict` pointers and `-O3 -march=native
 -fno-math-errno`, avoiding the ~10 temporary tensors the Lua implementation
 would allocate. This makes the optimizer step ~5x faster than PyTorch on the
 MLP benchmark.

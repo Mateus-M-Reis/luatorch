@@ -220,14 +220,13 @@ reshaped back. This avoids a separate bias kernel and temporary.
 
 ### Fused update kernels
 
-Adam, AdamW and SGD execute their update in a single C kernel over contiguous
-float32/float64 storage, instead of a chain of temporary tensor ops. On a
-784→256→10 MLP this reduces the optimizer step from ~1.14 ms (PyTorch) to
+Adam, AdamW, SGD, RMSprop and Adagrad execute their update in a single C kernel
+over contiguous float32/float64 storage, instead of a chain of temporary tensor
+ops. On a 784→256→10 MLP this reduces the Adam step from ~1.14 ms (PyTorch) to
 ~0.22 ms, and the complete training step from ~5.1 ms to ~4.0 ms.
 
 Parameters, gradients and optimizer state must be contiguous and float32 or
 float64; non-contiguous parameters raise an error rather than silently copying.
-RMSprop and Adagrad still use the Lua tensor-op implementation.
 
 ### Gradient clipping
 

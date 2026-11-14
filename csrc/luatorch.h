@@ -306,6 +306,17 @@ int lt_sgd_step(
     double lr, double momentum, double dampening,
     double weight_decay, int nesterov, int first_step);
 
+int lt_rmsprop_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* square_avg, lt_tensor* grad_avg, lt_tensor* momentum_buffer,
+    double lr, double alpha, double eps, double weight_decay,
+    double momentum, int centered);
+int lt_adagrad_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* sum,
+    double lr, double lr_decay, double weight_decay,
+    double eps, int64_t step);
+
 /* Fused forward/backward through a C++ autograd Function.  Kernel pointers
  * have the signature:
  *   void kernel(const void** ptrs, const double* scalars, int64_t n, int threads)

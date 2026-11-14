@@ -2,6 +2,9 @@
 -- torch.optim.adagrad
 --
 local torch = require("torch")
+local libmod = require("torch.lib")
+local lib = libmod.lib
+local ffi = libmod.ffi
 local Optimizer = require("torch.optim.optimizer")
 
 local Adagrad = setmetatable({}, {
@@ -27,29 +30,29 @@ function Adagrad.new(params, options)
 end
 
 function Adagrad:step()
-  torch.no_grad(function()
-    for _, parameter in ipairs(self.params) do
-      local gradient = parameter:grad()
-      if gradient then
-        local state = self:state_for(parameter)
-        if state.sum == nil then
-          state.sum = torch.full_like(parameter, self.initial_accumulator_value)
-          state.step = 0
-        end
-        state.step = state.step + 1
+  for _, parameter in ipairs(self.params) do
+    local gradient = parameter:grad()
+    if gradient then
+      local state = self:state_for(parameter)
+      if state.sum == nil then
+        state.sum = torch.full_like(parameter, self.initial_accumulator_value)
+        state.step = 0
+      end
+      state.step = state.step + 1
 
-        if self.weight_decay ~= 0 then
-          gradient = gradient:add(parameter:mul(self.weight_decay))
-        end
+      if not gradient:is_contiguous() then
+        gradient = gradient:contiguous()
+      end
 
-        state.sum:add_(gradient:mul(gradient))
-        local learning_rate = self.lr /
-          (1 + (state.step - 1) * self.lr_decay)
-        local update = gradient:div(state.sum:sqrt():add_(self.eps))
-        parameter:add_(update:mul(-learning_rate))
+      local status = lib.lt_adagrad_step(
+        parameter.h, gradient.h, state.sum.h,
+        self.lr, self.lr_decay, self.weight_decay,
+        self.eps, state.step)
+      if status ~= 0 then
+        error(ffi.string(lib.lt_last_error()), 3)
       end
     end
-  end)
+  end
   return self
 end
 

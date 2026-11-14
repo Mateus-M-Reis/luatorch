@@ -2,6 +2,9 @@
 -- torch.optim.rmsprop
 --
 local torch = require("torch")
+local libmod = require("torch.lib")
+local lib = libmod.lib
+local ffi = libmod.ffi
 local Optimizer = require("torch.optim.optimizer")
 
 local RMSprop = setmetatable({}, {
@@ -28,49 +31,37 @@ function RMSprop.new(params, options)
 end
 
 function RMSprop:step()
-  torch.no_grad(function()
-    for _, parameter in ipairs(self.params) do
-      local gradient = parameter:grad()
-      if gradient then
-        local state = self:state_for(parameter)
-        if state.square_avg == nil then
-          state.square_avg = torch.zeros_like(parameter)
-          state.step = 0
-          if self.momentum > 0 then
-            state.momentum_buffer = torch.zeros_like(parameter)
-          end
-          if self.centered then
-            state.grad_avg = torch.zeros_like(parameter)
-          end
-        end
-        state.step = state.step + 1
-
-        if self.weight_decay ~= 0 then
-          gradient = gradient:add(parameter:mul(self.weight_decay))
-        end
-
-        state.square_avg:mul_(self.alpha)
-          :add_(gradient:mul(gradient):mul(1 - self.alpha))
-
-        local average
-        if self.centered then
-          state.grad_avg:mul_(self.alpha):add_(gradient:mul(1 - self.alpha))
-          average = state.square_avg:sub(state.grad_avg:pow(2))
-        else
-          average = state.square_avg
-        end
-
-        local denominator = average:sqrt():add_(self.eps)
+  for _, parameter in ipairs(self.params) do
+    local gradient = parameter:grad()
+    if gradient then
+      local state = self:state_for(parameter)
+      if state.square_avg == nil then
+        state.square_avg = torch.zeros_like(parameter)
+        state.step = 0
         if self.momentum > 0 then
-          state.momentum_buffer:mul_(self.momentum)
-            :add_(gradient:div(denominator))
-          parameter:add_(state.momentum_buffer:mul(-self.lr))
-        else
-          parameter:add_(gradient:div(denominator):mul(-self.lr))
+          state.momentum_buffer = torch.zeros_like(parameter)
+        end
+        if self.centered then
+          state.grad_avg = torch.zeros_like(parameter)
         end
       end
+      state.step = state.step + 1
+
+      if not gradient:is_contiguous() then
+        gradient = gradient:contiguous()
+      end
+
+      local status = lib.lt_rmsprop_step(
+        parameter.h, gradient.h, state.square_avg.h,
+        state.grad_avg and state.grad_avg.h or nil,
+        state.momentum_buffer and state.momentum_buffer.h or nil,
+        self.lr, self.alpha, self.eps, self.weight_decay,
+        self.momentum, self.centered and 1 or 0)
+      if status ~= 0 then
+        error(ffi.string(lib.lt_last_error()), 3)
+      end
     end
-  end)
+  end
   return self
 end
 

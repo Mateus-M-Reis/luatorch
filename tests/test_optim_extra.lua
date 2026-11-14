@@ -188,3 +188,60 @@ test("fused optimizers reject non-contiguous parameters", function()
     optimizer:step()
   end, "contiguous")
 end)
+
+test("fused RMSprop matches a reference implementation", function()
+  local lr, alpha, eps = 0.01, 0.9, 1e-8
+  local momentum = 0.5
+  local parameter = torch.tensor({ 1.0, -2.0 }, { requires_grad = true })
+  local reference = parameter:detach():clone()
+  local square_avg = torch.zeros_like(reference)
+  local grad_avg = torch.zeros_like(reference)
+  local buffer = torch.zeros_like(reference)
+  local optimizer = optim.RMSprop({ parameter }, {
+    lr = lr, alpha = alpha, eps = eps,
+    momentum = momentum, centered = true,
+  })
+
+  for _ = 1, 4 do
+    optimizer:zero_grad()
+    parameter:sum():backward()
+    optimizer:step()
+
+    local gradient = torch.ones_like(reference)
+    square_avg = square_avg * alpha + gradient * gradient * (1 - alpha)
+    grad_avg = grad_avg * alpha + gradient * (1 - alpha)
+    local average = square_avg - grad_avg * grad_avg
+    local denominator = average:sqrt() + eps
+    buffer = buffer * momentum + gradient / denominator
+    reference = reference - buffer * lr
+  end
+
+  assert_true(parameter:allclose(reference, 1e-5, 1e-6))
+  local state = optimizer.state[parameter]
+  assert_true(state.square_avg:allclose(square_avg, 1e-5, 1e-6))
+  assert_true(state.momentum_buffer:allclose(buffer, 1e-5, 1e-6))
+end)
+
+test("fused Adagrad matches a reference implementation", function()
+  local lr, lr_decay, eps = 0.1, 0.01, 1e-10
+  local parameter = torch.tensor({ 1.0, -2.0 }, { requires_grad = true })
+  local reference = parameter:detach():clone()
+  local sum = torch.zeros_like(reference)
+  local optimizer = optim.Adagrad({ parameter }, {
+    lr = lr, lr_decay = lr_decay, eps = eps,
+  })
+
+  for step = 1, 4 do
+    optimizer:zero_grad()
+    parameter:sum():backward()
+    optimizer:step()
+
+    local gradient = torch.ones_like(reference)
+    sum = sum + gradient * gradient
+    local learning_rate = lr / (1 + (step - 1) * lr_decay)
+    reference = reference - (gradient / (sum:sqrt() + eps)) * learning_rate
+  end
+
+  assert_true(parameter:allclose(reference, 1e-5, 1e-6))
+  assert_true(optimizer.state[parameter].sum:allclose(sum, 1e-5, 1e-6))
+end)
