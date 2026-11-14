@@ -66,6 +66,8 @@ Ryzen 3 machine. Eager and compiled PyTorch are shown separately because
 | MSE reduce, fused | 0.45 ms | 1.74 ms | **3.87x** | — | — |
 | chain reduce, fused | 0.61 ms | 4.04 ms | **6.57x** | — | — |
 | MSE loss train, fused | 4.36 ms | 11.55 ms | **2.65x** | — | — |
+| logsumexp, fused | 1.30 ms | 4.62 ms | **3.56x** | — | — |
+| logsumexp train, fused | 7.3 ms | 13.0 ms | **1.78x** | — | — |
 
 What the table actually says:
 
@@ -80,11 +82,11 @@ What the table actually says:
   inference speedup because the custom autograd node and gradient allocations
   have fixed overhead.
 - **Fused reductions are a major win.** Compiling reduction kernels with
-  `-ffast-math` lets GCC vectorise the four accumulators: MSE drops to 0.45 ms
-  (**3.9x**), a two-op ReLU chain to 0.61 ms (**6.6x**), and the full trainable
-  MSE step to **2.65x** faster than eager. The trade-off is reassociated
-  summation: relative error is ~1e-5 on 1M elements, well inside metric/loss
-  tolerance.
+  `-ffast-math` lets GCC vectorise the accumulators and libm calls: MSE drops to
+  0.45 ms (**3.9x**), a two-op ReLU chain to 0.61 ms (**6.6x**),
+  `logsumexp` to 1.30 ms (**3.6x**), and trainable MSE to **2.65x** faster than
+  eager. The trade-off is reassociated summation: relative error is ~1e-5 on 1M
+  elements, well inside metric/loss tolerance.
 - **Single additions and GEMM are parity-to-tie.** GEMM uses the same BLAS-class
   kernels; single out-of-place adds are dominated by allocation/free behavior.
 - **Small tensors** are 1.1–1.4x faster thanks to lower dispatch overhead.
@@ -93,11 +95,12 @@ What the table actually says:
 
 ## Status
 
-> **0.6.4 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.6.5 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, and fused `sum`/`mean` reductions with backward
-> are implemented and covered by **248 tests**. CUDA, higher-order autograd,
-> fused softmax, and more `nn` layers are next (see [ROADMAP.md](ROADMAP.md)).
+> first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
+> backward are implemented and covered by **250 tests**. CUDA, higher-order
+> autograd, fused softmax, and more `nn` layers are next
+> (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -163,7 +166,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 248 tests
+scripts/test.sh               # 250 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -206,7 +209,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, shuffling |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
-| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean reductions, compile cache |
+| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
 
 ## How the fusion engine works
@@ -222,9 +225,9 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
    symbolically, emits a vectorised backward kernel, and runs both through a
    C++ `torch::autograd::Function`, so `loss:backward()` reaches the compiled
    kernel.
-5. `torch.fuse.reduce(fn, "sum"|"mean")` emits the expression and the reduction
-   into one loop; when inputs require grad, a matching backward kernel is
-   compiled and run through a C++ reduction autograd Function.
+5. `torch.fuse.reduce(fn, "sum"|"mean"|"logsumexp")` emits the expression and
+   the reduction into one loop; when inputs require grad, a matching backward
+   kernel is compiled and run through a C++ reduction autograd Function.
 6. Any unsupported operation or shape mismatch falls back to eager ATen;
    inference fusion and reductions also fall back when gradients are required.
    Correctness never depends on the tracer.
@@ -257,8 +260,8 @@ and fallback rules.
 
 ## Honest limitations
 
-- Fusion handles elementwise expressions plus `sum`/`mean` reductions with
-  first-order backward; softmax and logsumexp are not fused yet.
+- Fusion handles elementwise expressions plus `sum`/`mean`/`logsumexp`
+  reductions with first-order backward; softmax is not fused yet.
 - `torch.fuse.train` supports **first-order** derivatives and requires the C
   backend; higher-order gradients and the LuaJIT-only fallback use eager
   autograd.

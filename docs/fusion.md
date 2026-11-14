@@ -113,8 +113,8 @@ for those.
 
 ## Fused reductions
 
-`torch.fuse.reduce(fn, "sum"|"mean")` emits the elementwise expression and the
-reduction into one kernel:
+`torch.fuse.reduce(fn, "sum"|"mean"|"logsumexp")` emits the elementwise
+expression and the reduction into one kernel:
 
 ```lua
 local mse = torch.fuse.reduce(function(prediction, target)
@@ -133,7 +133,8 @@ static inline float luatorch_expr(const float* t1, ..., int64_t i) { ... }
 a0 += luatorch_expr(..., i);
 a1 += luatorch_expr(..., i + 1);
 ...
-out[0] = total / n;   // mean
+out[0] = total / n;               // mean
+// logsumexp: max pass, then sum(exp(x - max)), then max + log(sum)
 ```
 
 When any input requires grad, `torch.fuse.reduce` compiles a matching backward
@@ -152,6 +153,8 @@ Measured on 1M floats:
 | `mean((a-b)^2)` forward | 0.45 ms | 1.74 ms | 3.87x |
 | `mean(relu((a-b)^2 + c*0.5))` forward | 0.61 ms | 4.04 ms | 6.57x |
 | MSE loss + backward | 4.36 ms | 11.55 ms | 2.65x |
+| `logsumexp(a*b)` forward | 1.30 ms | 4.62 ms | 3.56x |
+| `logsumexp(a*b)` + backward | 7.3 ms | 13.0 ms | 1.78x |
 
 Reduction kernels are compiled with `-ffast-math` so GCC can vectorise the
 four independent accumulators. That reassociates the sum: relative error is
@@ -260,6 +263,8 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 | `mean((a-b)^2)` fused | 0.45 ms | 1.74 ms | **3.87x** | — |
 | `mean(relu((a-b)^2 + c*0.5))` fused | 0.61 ms | 4.04 ms | **6.57x** | — |
 | MSE loss + backward fused | 4.36 ms | 11.55 ms | **2.65x** | — |
+| `logsumexp(a*b)` fused | 1.30 ms | 4.62 ms | **3.56x** | — |
+| `logsumexp` train fused | 7.3 ms | 13.0 ms | **1.78x** | — |
 
 Caveats:
 
@@ -277,8 +282,8 @@ Caveats:
 
 ## Limitations and next steps
 
-- Fused reductions cover `sum`/`mean` with first-order backward; softmax,
-  logsumexp, layernorm, convolution, and matmul epilogues are not fused yet.
+- Fused reductions cover `sum`/`mean`/`logsumexp` with first-order backward;
+  softmax, layernorm, convolution, and matmul epilogues are not fused yet.
 - Fused backward is first-order and C-backend only; second-order gradients and
   the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec

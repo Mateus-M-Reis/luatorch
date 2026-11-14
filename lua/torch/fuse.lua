@@ -541,8 +541,9 @@ function FusedReduce.new(function_value, reduction, options)
   if type(function_value) ~= "function" then
     error("torch.fuse.reduce expects a function", 2)
   end
-  if reduction ~= "sum" and reduction ~= "mean" then
-    error("torch.fuse.reduce expects 'sum' or 'mean'", 2)
+  if reduction ~= "sum" and reduction ~= "mean" and
+    reduction ~= "logsumexp" then
+    error("torch.fuse.reduce expects 'sum', 'mean' or 'logsumexp'", 2)
   end
   return setmetatable({
     fn = function_value,
@@ -563,6 +564,8 @@ function FusedReduce:run(...)
     local result = self.fn(unpack(args, 1, count))
     if self.reduction == "mean" then
       return result:mean()
+    elseif self.reduction == "logsumexp" then
+      return result:logsumexp()
     end
     return result:sum()
   end

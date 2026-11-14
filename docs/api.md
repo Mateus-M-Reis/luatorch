@@ -1,4 +1,4 @@
-# luatorch API reference (0.6.4)
+# luatorch API reference (0.6.5)
 
 All examples assume:
 
@@ -72,7 +72,8 @@ explains the fallback.
 
 `torch.fuse.reduce(fn, reduction)` (alias `torch.fuse_reduce`) fuses an
 elementwise expression directly into a scalar reduction, avoiding the
-intermediate tensor:
+intermediate tensor. Supported reductions are `"sum"`, `"mean"` and
+`"logsumexp"`:
 
 ```lua
 local mse = torch.fuse.reduce(function(prediction, target)
@@ -82,8 +83,8 @@ end, "mean")
 local loss = mse(prediction, target)   -- 0-dim tensor
 ```
 
-`reduction` is `"sum"` or `"mean"`. When inputs require grad, a compiled
-backward kernel runs through a C++ autograd Function, so the 0-dim loss can be
+When inputs require grad, a compiled backward kernel runs through a C++
+autograd Function, so the 0-dim loss can be
 used normally in training. Unsupported expressions or a missing C compiler fall
 back to eager expression + reduction. `reduce.last_error` explains the
 fallback.
@@ -451,6 +452,6 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.6.4")
+torch.VERSION             -- luatorch version string ("0.6.5")
 torch.version             -- libtorch version string
 ```

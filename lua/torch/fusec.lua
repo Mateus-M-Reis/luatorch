@@ -657,11 +657,47 @@ local function generate_backward(expression, signature, dtype, options)
       info.ctype, ordinal, info.ctype, tensor_index + ordinal)
   end
 
+  local extra_prelude = {}
+  local softmax_weight = nil
+  if options.logsumexp then
+    local helper_arguments = {}
+    for index = 1, #signature do
+      if signature:sub(index, index) == "T" then
+        helper_arguments[#helper_arguments + 1] = "t" .. index
+      else
+        helper_arguments[#helper_arguments + 1] = "s" .. index
+      end
+    end
+    local helper_prefix = #helper_arguments > 0
+      and (table.concat(helper_arguments, ", ") .. ", ")
+      or ""
+    local function helper_call(index_expression)
+      return "luatorch_expr(" .. helper_prefix .. index_expression .. ")"
+    end
+    extra_prelude[#extra_prelude + 1] = string.format(
+      "  %s maximum = -INFINITY;", info.ctype)
+    extra_prelude[#extra_prelude + 1] = "  for (int64_t k = 0; k < n; ++k) {"
+    extra_prelude[#extra_prelude + 1] = string.format(
+      "    const %s value = %s;", info.ctype, helper_call("k"))
+    extra_prelude[#extra_prelude + 1] = "    if (value > maximum) maximum = value;"
+    extra_prelude[#extra_prelude + 1] = "  }"
+    extra_prelude[#extra_prelude + 1] = string.format("  %s sum = 0;", info.ctype)
+    extra_prelude[#extra_prelude + 1] = "  for (int64_t k = 0; k < n; ++k) {"
+    extra_prelude[#extra_prelude + 1] = string.format(
+      "    sum += %s(%s - maximum);", info.exp, helper_call("k"))
+    extra_prelude[#extra_prelude + 1] = "  }"
+    softmax_weight = string.format(
+      "(%s(%s - maximum) / sum)", info.exp, helper_call("i"))
+  end
+
   local writes = {}
   for ordinal, gradient in ipairs(gradients) do
     local expression_text = render(gradient)
     if options.mean then
       expression_text = string.format("(%s) / ((%s)n)", expression_text, info.ctype)
+    end
+    if softmax_weight then
+      expression_text = "(" .. expression_text .. ") * " .. softmax_weight
     end
     writes[#writes + 1] = string.format("    g%d[i] = %s;", ordinal, expression_text)
   end
@@ -669,6 +705,7 @@ local function generate_backward(expression, signature, dtype, options)
   local source = table.concat({
     "void luatorch_backward(const void** ptrs, const double* scalars, int64_t n, int threads) {",
     table.concat(prelude, "\n"),
+    table.concat(extra_prelude, "\n"),
     "#ifdef _OPENMP",
     "#pragma omp parallel for if(threads > 1 && n > 20000) num_threads(threads)",
     "#endif",
@@ -687,8 +724,8 @@ local function generate_reduce(expression, signature, dtype, reduction)
   if info == nil then
     return nil, "unsupported dtype for fused reduction"
   end
-  if reduction ~= "sum" and reduction ~= "mean" then
-    return nil, "fused reduction must be 'sum' or 'mean'"
+  if reduction ~= "sum" and reduction ~= "mean" and reduction ~= "logsumexp" then
+    return nil, "fused reduction must be 'sum', 'mean' or 'logsumexp'"
   end
 
   local context = {
@@ -746,35 +783,49 @@ local function generate_reduce(expression, signature, dtype, reduction)
     "",
   }, "\n")
 
-  local reduction_line
-  if reduction == "mean" then
-    reduction_line = "  out[0] = n > 0 ? total / ((" .. info.ctype .. ")n) : 0;"
-  else
-    reduction_line = "  out[0] = total;"
-  end
-
-  local kernel = table.concat({
-    helper,
+  local body = {
     "void luatorch_kernel(const void** ptrs, const double* scalars, int64_t n, int threads) {",
     table.concat(prelude, "\n"),
     string.format("  %s* __restrict out = (%s*)ptrs[%d];", info.ctype, info.ctype, tensor_count),
-    string.format("  %s a0 = 0, a1 = 0, a2 = 0, a3 = 0;", info.ctype),
-    "  int64_t i = 0;",
-    "  for (; i + 3 < n; i += 4) {",
-    "    a0 += luatorch_expr(" .. argument_prefix .. "i);",
-    "    a1 += luatorch_expr(" .. argument_prefix .. "i + 1);",
-    "    a2 += luatorch_expr(" .. argument_prefix .. "i + 2);",
-    "    a3 += luatorch_expr(" .. argument_prefix .. "i + 3);",
-    "  }",
-    "  for (; i < n; ++i) {",
-    "    a0 += luatorch_expr(" .. argument_prefix .. "i);",
-    "  }",
-    string.format("  const %s total = (a0 + a1) + (a2 + a3);", info.ctype),
-    reduction_line,
-    "}",
-    "",
-  }, "\n")
-  return kernel
+  }
+  if reduction == "logsumexp" then
+    body[#body + 1] = string.format("  %s maximum = -INFINITY;", info.ctype)
+    body[#body + 1] = "  for (int64_t k = 0; k < n; ++k) {"
+    body[#body + 1] = "    const " .. info.ctype ..
+      " value = luatorch_expr(" .. argument_prefix .. "k);"
+    body[#body + 1] = "    if (value > maximum) maximum = value;"
+    body[#body + 1] = "  }"
+    body[#body + 1] = string.format("  %s sum = 0;", info.ctype)
+    body[#body + 1] = "  for (int64_t k = 0; k < n; ++k) {"
+    body[#body + 1] = "    sum += " .. info.exp ..
+      "(luatorch_expr(" .. argument_prefix .. "k) - maximum);"
+    body[#body + 1] = "  }"
+    body[#body + 1] = string.format(
+      "  out[0] = n > 0 ? maximum + %s(sum) : -INFINITY;", info.log)
+  else
+    body[#body + 1] = string.format("  %s a0 = 0, a1 = 0, a2 = 0, a3 = 0;", info.ctype)
+    body[#body + 1] = "  int64_t i = 0;"
+    body[#body + 1] = "  for (; i + 3 < n; i += 4) {"
+    body[#body + 1] = "    a0 += luatorch_expr(" .. argument_prefix .. "i);"
+    body[#body + 1] = "    a1 += luatorch_expr(" .. argument_prefix .. "i + 1);"
+    body[#body + 1] = "    a2 += luatorch_expr(" .. argument_prefix .. "i + 2);"
+    body[#body + 1] = "    a3 += luatorch_expr(" .. argument_prefix .. "i + 3);"
+    body[#body + 1] = "  }"
+    body[#body + 1] = "  for (; i < n; ++i) {"
+    body[#body + 1] = "    a0 += luatorch_expr(" .. argument_prefix .. "i);"
+    body[#body + 1] = "  }"
+    body[#body + 1] = string.format(
+      "  const %s total = (a0 + a1) + (a2 + a3);", info.ctype)
+    if reduction == "mean" then
+      body[#body + 1] = string.format(
+        "  out[0] = n > 0 ? total / ((%s)n) : 0;", info.ctype)
+    else
+      body[#body + 1] = "  out[0] = total;"
+    end
+  end
+  body[#body + 1] = "}"
+  body[#body + 1] = ""
+  return table.concat({ helper, table.concat(body, "\n") }, "\n")
 end
 
 local function hash(text)
@@ -898,6 +949,7 @@ function M.compile_reduce_train(expression, signature, dtype, reduction)
     expression, signature, dtype, {
       grad_scalar = true,
       mean = reduction == "mean",
+      logsumexp = reduction == "logsumexp",
     })
   if backward == nil then
     return nil, backward_error

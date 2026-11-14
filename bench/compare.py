@@ -141,6 +141,19 @@ def run_pytorch(compile_chain):
 
     results["mse_train_eager"] = best_of(30, mse_train_eager)
 
+    results["logsumexp_eager"] = best_of(
+        30, lambda: (reduce_a * reduce_b).logsumexp())
+    logsumexp_p = torch.randn(1_000_000, requires_grad=True)
+    logsumexp_q = torch.randn(1_000_000, requires_grad=True)
+
+    def logsumexp_train_eager():
+        logsumexp_p.grad = None
+        logsumexp_q.grad = None
+        loss = (logsumexp_p * logsumexp_q).logsumexp()
+        loss.backward()
+
+    results["logsumexp_train_eager"] = best_of(30, logsumexp_train_eager)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -179,6 +192,8 @@ def print_table(lua, torch_results, compiled):
         ("MSE reduce (fused)", "mse_fused", "mse_eager", None),
         ("chain reduce (fused)", "reduce_chain_fused", "reduce_chain_eager", None),
         ("MSE loss train (fused)", "mse_train_fused", "mse_train_eager", None),
+        ("logsumexp (fused)", "logsumexp_fused", "logsumexp_eager", None),
+        ("logsumexp train (fused)", "logsumexp_train_fused", "logsumexp_train_eager", None),
         ("chain train (eager)", "chain_train", "chain_train", None),
         ("chain train (fused)", "chain_train_fused", "chain_train", None),
     ]

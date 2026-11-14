@@ -183,7 +183,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 248 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The 250 tests cover construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),
@@ -235,7 +235,9 @@ loops; the cache key includes the flags. The resulting sum is reassociated
 (relative error ~1e-5 on 1M elements), which is appropriate for metrics and
 losses. Other fusion kernels remain precise.
 
-`torch.fuse.reduce(fn, "sum"|"mean")` returns a 0-dim tensor. When inputs
+`torch.fuse.reduce(fn, "sum"|"mean"|"logsumexp")` returns a 0-dim tensor.
+`logsumexp` uses a stable max pass followed by a vectorised `exp`/sum pass, and
+the generated backward recomputes those statistics to form softmax weights. When inputs
 require grad, a reduce backward kernel is generated (`derivative * grad_output`,
 divided by `n` for `mean`) and driven by a C++ reduction autograd Function; this
 makes fused MSE loss trainable.
