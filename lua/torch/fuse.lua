@@ -550,6 +550,7 @@ function FusedReduce.new(function_value, reduction, options)
     options = options or {},
     traces = {},
     kernels = {},
+    train_kernels = {},
     last_error = nil,
   }, FusedReduce)
 end
@@ -568,22 +569,21 @@ function FusedReduce:run(...)
 
   local signature_parts = {}
   local dtype = nil
-  local dtype_name = nil
   local shape = nil
   local tensor_count, scalar_count = 0, 0
+  local needs_grad = false
 
   for index = 1, count do
     local value = args[index]
     if Tensor.is_tensor(value) then
       if value:requires_grad() then
-        return fallback()
+        needs_grad = true
       end
       signature_parts[index] = "T"
       tensor_count = tensor_count + 1
       local value_dtype = value:dtype_id()
       if dtype == nil then
         dtype = value_dtype
-        dtype_name = value:dtype()
         shape = value:sizes()
       elseif value_dtype ~= dtype then
         return fallback()
@@ -625,6 +625,47 @@ function FusedReduce:run(...)
   end
 
   local key = signature .. "|" .. dtype
+
+  if needs_grad then
+    local train_kernel = self.train_kernels[key]
+    if train_kernel == nil then
+      local compiled, error_message = fusec.compile_reduce_train(
+        expression, signature, dtype, self.reduction)
+      if compiled == nil then
+        self.traces[signature] = false
+        self.last_error = error_message
+        return fallback()
+      end
+      train_kernel = compiled
+      self.train_kernels[key] = train_kernel
+    end
+
+    local input_array = ffi.new("lt_tensor*[?]", tensor_count)
+    local scalars = ffi.new("double[?]", math.max(scalar_count, 1))
+    local tensor_index, scalar_index = 0, 0
+    for index = 1, count do
+      if signature_parts[index] == "T" then
+        input_array[tensor_index] = args[index].h
+        tensor_index = tensor_index + 1
+      else
+        scalars[scalar_index] = args[index]
+        scalar_index = scalar_index + 1
+      end
+    end
+
+    local pointer = lib.lt_fused_reduce_apply(
+      input_array, tensor_count,
+      ffi.cast("void*", train_kernel.forward),
+      ffi.cast("void*", train_kernel.backward),
+      scalar_count > 0 and scalars or nil,
+      scalar_count)
+    if pointer == nil then
+      self.last_error = ffi.string(lib.lt_last_error())
+      return fallback()
+    end
+    return Tensor._wrap(pointer)
+  end
+
   local kernel = self.kernels[key]
   if kernel == nil then
     local compiled, error_message = fusec.compile_reduce(
@@ -641,13 +682,14 @@ function FusedReduce:run(...)
   local output = Tensor._create("empty", {}, { dtype = dtype })
   local pointers = ffi.new("const void*[?]", tensor_count + 1)
   local scalars = ffi.new("double[?]", math.max(scalar_count, 1))
+  local contiguous_inputs = {}
   local tensor_index, scalar_index = 0, 0
   for index = 1, count do
     if signature_parts[index] == "T" then
       local contiguous = args[index]:contiguous()
+      contiguous_inputs[index] = contiguous
       pointers[tensor_index] = lib.lt_data_ptr(contiguous.h)
       tensor_index = tensor_index + 1
-      args[index] = contiguous
     else
       scalars[scalar_index] = args[index]
       scalar_index = scalar_index + 1

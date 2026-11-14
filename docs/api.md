@@ -1,4 +1,4 @@
-# luatorch API reference (0.6.0)
+# luatorch API reference (0.6.1)
 
 All examples assume:
 
@@ -82,9 +82,11 @@ end, "mean")
 local loss = mse(prediction, target)   -- 0-dim tensor
 ```
 
-`reduction` is `"sum"` or `"mean"`. The reduction is forward-only: inputs that
-require grad, unsupported expressions, or a missing C compiler fall back to
-eager expression + reduction. `reduce.last_error` explains the fallback.
+`reduction` is `"sum"` or `"mean"`. When inputs require grad, a compiled
+backward kernel runs through a C++ autograd Function, so the 0-dim loss can be
+used normally in training. Unsupported expressions or a missing C compiler fall
+back to eager expression + reduction. `reduce.last_error` explains the
+fallback.
 
 ## Dtypes
 
@@ -449,6 +451,6 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
-torch.VERSION             -- luatorch version string ("0.6.0")
+torch.VERSION             -- luatorch version string ("0.6.1")
 torch.version             -- libtorch version string
 ```

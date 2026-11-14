@@ -286,6 +286,8 @@ at::Tensor norm_impl(
     return 1;                                          \
   }
 
+
+
 }  // namespace
 
 /* ------------------------------------------------------------------ */
@@ -481,9 +483,13 @@ struct FusedKernelSpec {
 
 thread_local FusedKernelSpec g_fused_spec;
 thread_local bool g_fused_pending = false;
+thread_local bool g_fused_reduce_pending = false;
 
 struct FusedPendingGuard {
-  ~FusedPendingGuard() { g_fused_pending = false; }
+  ~FusedPendingGuard() {
+    g_fused_pending = false;
+    g_fused_reduce_pending = false;
+  }
 };
 
 class FusedAutogradFunction
@@ -577,6 +583,129 @@ class FusedAutogradFunction
     if (!grad_output.sizes().equals(saved[0].sizes())) {
       throw std::runtime_error("fused autograd: gradient shape mismatch");
     }
+
+    std::vector<const void*> pointers;
+    pointers.reserve(saved.size() * 2 + 1);
+    for (const auto& input : saved) {
+      pointers.push_back(input.const_data_ptr());
+    }
+    pointers.push_back(grad_output.const_data_ptr());
+
+    std::vector<at::Tensor> gradients;
+    gradients.reserve(saved.size());
+    for (const auto& input : saved) {
+      gradients.push_back(at::empty_like(input));
+      pointers.push_back(gradients.back().mutable_data_ptr());
+    }
+
+    backward_kernel(
+        pointers.data(),
+        scalars,
+        saved[0].numel(),
+        at::get_num_threads());
+
+    torch::autograd::variable_list result;
+    result.reserve(saved.size());
+    for (size_t i = 0; i < saved.size(); ++i) {
+      if (saved[i].requires_grad()) {
+        result.push_back(gradients[i]);
+      } else {
+        result.push_back(at::Tensor());
+      }
+    }
+    return result;
+  }
+};
+
+class FusedReduceAutogradFunction
+    : public torch::autograd::Function<FusedReduceAutogradFunction> {
+ public:
+  template <typename... Args>
+  static torch::autograd::variable_list forward(
+      torch::autograd::AutogradContext* ctx, Args... args) {
+    if (!g_fused_reduce_pending) {
+      throw std::runtime_error(
+          "fused reduction autograd called without a kernel spec");
+    }
+    FusedKernelSpec spec = g_fused_spec;
+    g_fused_reduce_pending = false;
+
+    std::vector<at::Tensor> inputs{args...};
+    if (inputs.empty()) {
+      throw std::runtime_error(
+          "fused reduction autograd needs at least one input");
+    }
+    const auto dtype = inputs[0].scalar_type();
+    if (dtype != at::kFloat && dtype != at::kDouble) {
+      throw std::runtime_error(
+          "fused reduction autograd supports float32/float64 only");
+    }
+    for (const auto& input : inputs) {
+      if (input.scalar_type() != dtype) {
+        throw std::runtime_error("fused reduction autograd: dtype mismatch");
+      }
+      if (!input.sizes().equals(inputs[0].sizes())) {
+        throw std::runtime_error("fused reduction autograd: shape mismatch");
+      }
+    }
+
+    std::vector<at::Tensor> contiguous;
+    contiguous.reserve(inputs.size());
+    for (const auto& input : inputs) {
+      contiguous.push_back(input.contiguous());
+    }
+
+    at::Tensor output = at::empty(
+        at::IntArrayRef{},
+        at::TensorOptions().dtype(dtype).device(contiguous[0].device()));
+    std::vector<const void*> pointers;
+    pointers.reserve(contiguous.size() + 1);
+    for (const auto& input : contiguous) {
+      pointers.push_back(input.const_data_ptr());
+    }
+    pointers.push_back(output.mutable_data_ptr());
+
+    spec.forward(
+        pointers.data(),
+        spec.scalars.empty() ? nullptr : spec.scalars.data(),
+        contiguous[0].numel(),
+        at::get_num_threads());
+
+    ctx->save_for_backward(contiguous);
+    ctx->saved_data["forward"] =
+        static_cast<int64_t>(reinterpret_cast<intptr_t>(spec.forward));
+    ctx->saved_data["backward"] =
+        static_cast<int64_t>(reinterpret_cast<intptr_t>(spec.backward));
+    ctx->saved_data["inputs"] = static_cast<int64_t>(contiguous.size());
+    at::Tensor scalars_tensor;
+    if (spec.scalars.empty()) {
+      scalars_tensor = at::empty({0}, at::kDouble);
+    } else {
+      scalars_tensor = at::from_blob(
+          spec.scalars.data(),
+          {static_cast<int64_t>(spec.scalars.size())},
+          at::kDouble).clone();
+    }
+    ctx->saved_data["scalars"] = scalars_tensor;
+    return {output};
+  }
+
+  static torch::autograd::variable_list backward(
+      torch::autograd::AutogradContext* ctx,
+      torch::autograd::variable_list grad_outputs) {
+    auto saved = ctx->get_saved_variables();
+    auto backward_kernel = reinterpret_cast<FusedKernel>(
+        static_cast<intptr_t>(ctx->saved_data["backward"].toInt()));
+    auto scalars_tensor = ctx->saved_data["scalars"].toTensor();
+    const int64_t scalar_count = scalars_tensor.numel();
+    const double* scalars = scalar_count > 0
+        ? scalars_tensor.const_data_ptr<double>()
+        : nullptr;
+
+    if (grad_outputs.empty() || !grad_outputs[0].defined()) {
+      return torch::autograd::variable_list(saved.size(), at::Tensor());
+    }
+    at::Tensor grad_output = grad_outputs[0].contiguous();
 
     std::vector<const void*> pointers;
     pointers.reserve(saved.size() * 2 + 1);
@@ -2172,6 +2301,83 @@ lt_tensor* lt_fused_apply(
     return nullptr;
   } catch (...) {
     set_error("unknown native error in fused autograd");
+    return nullptr;
+  }
+}
+
+lt_tensor* lt_fused_reduce_apply(
+    lt_tensor* const* inputs, int64_t n_inputs,
+    void* forward_kernel, void* backward_kernel,
+    const double* scalars, int64_t n_scalars) {
+  try {
+    clear_error();
+    if (inputs == nullptr || n_inputs < 1 || n_inputs > 8) {
+      throw std::runtime_error("fused reduction supports 1..8 tensor inputs");
+    }
+    if (forward_kernel == nullptr || backward_kernel == nullptr) {
+      throw std::runtime_error("fused reduction: null kernel pointer");
+    }
+    if (scalars == nullptr && n_scalars > 0) {
+      throw std::runtime_error("fused reduction: null scalar pointer");
+    }
+
+    FusedKernelSpec spec;
+    spec.forward = reinterpret_cast<FusedKernel>(forward_kernel);
+    spec.backward = reinterpret_cast<FusedKernel>(backward_kernel);
+    if (n_scalars > 0) {
+      spec.scalars.assign(scalars, scalars + n_scalars);
+    }
+    g_fused_spec = std::move(spec);
+    g_fused_reduce_pending = true;
+    FusedPendingGuard guard;
+
+    torch::autograd::variable_list outputs;
+    switch (n_inputs) {
+      case 1:
+        outputs = FusedReduceAutogradFunction::apply(inputs[0]->t);
+        break;
+      case 2:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t);
+        break;
+      case 3:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t, inputs[2]->t);
+        break;
+      case 4:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t, inputs[2]->t, inputs[3]->t);
+        break;
+      case 5:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t, inputs[2]->t, inputs[3]->t,
+            inputs[4]->t);
+        break;
+      case 6:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t, inputs[2]->t, inputs[3]->t,
+            inputs[4]->t, inputs[5]->t);
+        break;
+      case 7:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t, inputs[2]->t, inputs[3]->t,
+            inputs[4]->t, inputs[5]->t, inputs[6]->t);
+        break;
+      case 8:
+        outputs = FusedReduceAutogradFunction::apply(
+            inputs[0]->t, inputs[1]->t, inputs[2]->t, inputs[3]->t,
+            inputs[4]->t, inputs[5]->t, inputs[6]->t, inputs[7]->t);
+        break;
+    }
+    if (outputs.empty()) {
+      throw std::runtime_error("fused reduction returned no outputs");
+    }
+    return wrap(outputs[0]);
+  } catch (const std::exception& error) {
+    set_error(error);
+    return nullptr;
+  } catch (...) {
+    set_error("unknown native error in fused reduction autograd");
     return nullptr;
   }
 }

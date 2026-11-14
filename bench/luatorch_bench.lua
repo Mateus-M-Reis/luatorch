@@ -143,6 +143,25 @@ best("reduce_chain_eager", 50, function()
   ((reduce_a - reduce_b) ^ 2 + reduce_c * 0.5):relu():mean()
 end)
 
+local train_prediction = torch.randn(n, { requires_grad = true })
+local train_target = torch.randn(n, { requires_grad = true })
+local train_mse = torch.fuse_reduce(function(prediction, target)
+  return (prediction - target) ^ 2
+end, "mean")
+
+best("mse_train_fused", 30, function()
+  train_prediction:zero_grad()
+  train_target:zero_grad()
+  local loss = train_mse(train_prediction, train_target)
+  loss:backward()
+end)
+best("mse_train_eager", 30, function()
+  train_prediction:zero_grad()
+  train_target:zero_grad()
+  local loss = ((train_prediction - train_target) ^ 2):mean()
+  loss:backward()
+end)
+
 -- Fused autograd training --------------------------------------------------
 local train_x = torch.randn(n, { requires_grad = true })
 local train_y = torch.randn(n, { requires_grad = true })

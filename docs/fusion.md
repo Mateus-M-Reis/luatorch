@@ -136,18 +136,25 @@ a1 += luatorch_expr(..., i + 1);
 out[0] = total / n;   // mean
 ```
 
-Forward-only: if any tensor requires grad, tracing fails, or the C compiler is
-missing, the call falls back to eager expression + `sum`/`mean`.
+When any input requires grad, `torch.fuse.reduce` compiles a matching backward
+kernel and runs it through a C++ reduction autograd Function. For `mean`, each
+input gradient is `d(expression)/d(input) * grad_output / n`; for `sum` the
+`/ n` is dropped. The 0-dim loss therefore connects to `nn.Linear`, optimizers,
+and normal `loss:backward()`.
+
+Unsupported expressions, missing derivative rules, or a missing C compiler fall
+back to eager expression + `sum`/`mean`.
 
 Measured on 1M floats:
 
 | expression | fused | eager ATen | speedup |
 | --- | ---: | ---: | ---: |
-| `mean((a-b)^2)` | 1.67 ms | 1.81 ms | 1.08x |
-| `mean(relu((a-b)^2 + c*0.5))` | 2.25 ms | 4.11 ms | 1.83x |
+| `mean((a-b)^2)` forward | 1.67 ms | 1.81 ms | 1.08x |
+| `mean(relu((a-b)^2 + c*0.5))` forward | 2.25 ms | 4.11 ms | 1.83x |
+| MSE loss + backward | 5.2 ms | 12.8 ms | 2.47x |
 
-Simple MSE is memory-bound and nearly ties; longer chains win because eager
-launches a separate kernel per operator.
+Simple forward MSE is memory-bound and nearly ties; longer chains and the
+trainable path win because eager launches several kernels per direction.
 
 ## Fused training
 
@@ -250,6 +257,7 @@ Latest run on this machine (PyTorch 2.15.0+cpu, Ryzen 3 7320U):
 | chain train step, fused | 11.6 ms | 14.6 ms | **1.26x** | — |
 | `mean((a-b)^2)` fused | 1.67 ms | 1.81 ms | **1.08x** | — |
 | `mean(relu((a-b)^2 + c*0.5))` fused | 2.25 ms | 4.11 ms | **1.83x** | — |
+| MSE loss + backward fused | 5.2 ms | 12.8 ms | **2.47x** | — |
 
 Caveats:
 
@@ -267,8 +275,8 @@ Caveats:
 
 ## Limitations and next steps
 
-- Fused reductions cover forward `sum`/`mean`; softmax, logsumexp, layernorm,
-  convolution, and matmul epilogues are not fused yet.
+- Fused reductions cover `sum`/`mean` with first-order backward; softmax,
+  logsumexp, layernorm, convolution, and matmul epilogues are not fused yet.
 - Fused backward is first-order and C-backend only; second-order gradients and
   the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec

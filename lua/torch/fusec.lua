@@ -420,7 +420,8 @@ local function make_derivative(metatable)
   return derive
 end
 
-local function generate_backward(expression, signature, dtype)
+local function generate_backward(expression, signature, dtype, options)
+  options = options or {}
   local info = type_info[dtype]
   if info == nil then
     return nil, "unsupported dtype for fused autograd"
@@ -494,6 +495,9 @@ local function generate_backward(expression, signature, dtype)
     elseif op == "scalar_arg" then
       return "s" .. value.arg
     elseif op == "grad_output" then
+      if options.grad_scalar then
+        return "go[0]"
+      end
       return "go[i]"
     elseif op == "add" then
       return "(" .. arg(1) .. " + " .. arg(2) .. ")"
@@ -655,7 +659,11 @@ local function generate_backward(expression, signature, dtype)
 
   local writes = {}
   for ordinal, gradient in ipairs(gradients) do
-    writes[#writes + 1] = string.format("    g%d[i] = %s;", ordinal, render(gradient))
+    local expression_text = render(gradient)
+    if options.mean then
+      expression_text = string.format("(%s) / ((%s)n)", expression_text, info.ctype)
+    end
+    writes[#writes + 1] = string.format("    g%d[i] = %s;", ordinal, expression_text)
   end
 
   local source = table.concat({
@@ -876,6 +884,31 @@ function M.compile_reduce(expression, signature, dtype, reduction)
     return nil, compile_error
   end
   return library.luatorch_kernel
+end
+
+function M.compile_reduce_train(expression, signature, dtype, reduction)
+  local forward, forward_error = generate_reduce(
+    expression, signature, dtype, reduction)
+  if forward == nil then
+    return nil, forward_error
+  end
+  local backward, backward_error = generate_backward(
+    expression, signature, dtype, {
+      grad_scalar = true,
+      mean = reduction == "mean",
+    })
+  if backward == nil then
+    return nil, backward_error
+  end
+  local library, compile_error = compile_source(forward .. "\n" .. backward)
+  if library == nil then
+    return nil, compile_error
+  end
+  return {
+    forward = library.luatorch_kernel,
+    backward = library.luatorch_backward,
+    library = library,
+  }
 end
 
 return M

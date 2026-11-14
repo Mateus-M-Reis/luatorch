@@ -130,6 +130,17 @@ def run_pytorch(compile_chain):
     results["reduce_chain_eager"] = best_of(
         50, lambda: (((reduce_a - reduce_b) ** 2 + reduce_c * 0.5).relu()).mean())
 
+    train_prediction = torch.randn(1_000_000, requires_grad=True)
+    train_target = torch.randn(1_000_000, requires_grad=True)
+
+    def mse_train_eager():
+        train_prediction.grad = None
+        train_target.grad = None
+        loss = ((train_prediction - train_target) ** 2).mean()
+        loss.backward()
+
+    results["mse_train_eager"] = best_of(30, mse_train_eager)
+
     tiny = torch.randn(16)
     tiny_b = torch.randn(16)
     tiny_c = torch.randn(16)
@@ -167,6 +178,7 @@ def print_table(lua, torch_results, compiled):
         ("MLP train step", "mlp_train_step", "mlp_train_step", None),
         ("MSE reduce (fused)", "mse_fused", "mse_eager", None),
         ("chain reduce (fused)", "reduce_chain_fused", "reduce_chain_eager", None),
+        ("MSE loss train (fused)", "mse_train_fused", "mse_train_eager", None),
         ("chain train (eager)", "chain_train", "chain_train", None),
         ("chain train (fused)", "chain_train_fused", "chain_train", None),
     ]
