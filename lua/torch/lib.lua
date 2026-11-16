@@ -28,6 +28,7 @@ lt_tensor* lt_arange(double start, double stop, double step, int dtype);
 lt_tensor* lt_linspace(double start, double stop, int64_t steps, int dtype);
 lt_tensor* lt_randperm(int64_t n, int dtype);
 lt_tensor* lt_from_data(const void* data, int64_t ndim, const int64_t* sizes, int dtype);
+lt_tensor* lt_from_blob(const void* data, int64_t ndim, const int64_t* sizes, int dtype);
 void       lt_manual_seed(uint64_t seed);
 
 /* metadata */

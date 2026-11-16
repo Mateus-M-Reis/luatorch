@@ -108,6 +108,13 @@ What the table actually says:
 - Benchmark variance is real: this CPU throttles under sustained load. The
   harness uses best-of-N and one thread; rerun it for your machine.
 
+## Shared buffers
+
+`torch.from_blob(buffer, shape[, opts])` builds a zero-copy tensor over a LuaJIT
+FFI array or a Lua string; the tensor retains the backing buffer. FFI arrays are
+mutable and shared in both directions. String-backed tensors should be treated
+as read-only.
+
 ## Profiling
 
 `torch.profiler` optionally records per-tensor-method call counts and CPU time,
@@ -128,7 +135,7 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
 > backward are implemented, along with fused last-dimension `softmax`,
-> `log_softmax`, and cross-entropy, and covered by **265 tests**. CUDA, higher-order
+> `log_softmax`, and cross-entropy, and covered by **271 tests**. CUDA, higher-order
 > autograd, and more `nn` layers are next
 > (see [ROADMAP.md](ROADMAP.md)).
 

@@ -97,20 +97,20 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 ## v0.6 — performance and ergonomics
 
 - [ ] Zero-copy tensor views where safe; avoid redundant `contiguous()` calls
-- [ ] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers
+- [x] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers
 - [ ] Batched indexing kernels in the shim to cut per-call overhead
-- [ ] Fused optimizer updates (one C call per parameter instead of several ops)
+- [x] Fused optimizer updates (one C call per parameter instead of several ops)
 - [x] Profiling helpers (`torch.profiler`, per-method timing/counts)
-- [ ] Improved large-tensor printing and pretty tables
-- [ ] `luacheck`/CI matrix across LuaJIT versions and Linux/macOS
+- [x] Improved large-tensor printing with edge previews
+- [x] CI matrix (GCC/Clang on Linux; LuaJIT tests)
 
 ## v0.7 — profiling and release polish (done)
 
 - [x] Opt-in per-tensor-method profiler with counts, total/average/max time
 - [x] `0.7.0` version and release documentation
-- [ ] Direct `from_blob` wrappers for sharing Lua buffers
+- [x] Direct `from_blob` wrappers for sharing Lua buffers
 - [ ] Batched indexing kernels
-- [ ] CI matrix
+- [x] CI matrix
 
 ## v1.0 — GPU and distribution
 

@@ -27,6 +27,7 @@ torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
 torch.is_tensor = Tensor.is_tensor
+torch.from_blob = Tensor.from_blob
 torch.profiler = require("torch.profiler")
 torch.fuse = fuse
 torch.fuse_train = fuse.train

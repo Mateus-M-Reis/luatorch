@@ -143,6 +143,24 @@ torch.rand_like(t)
 torch.randn_like(t)
 ```
 
+### `torch.from_blob(buffer, shape[, opts])`
+
+Creates a tensor sharing memory with a Lua string or LuaJIT FFI buffer. The
+tensor keeps the buffer alive through `tensor._owner`. A Lua string is immutable,
+so tensors backed by strings must be treated as read-only. FFI array buffers
+are mutable and changes are visible in both directions.
+
+```lua
+local ffi = require("ffi")
+local buffer = ffi.new("float[4]", { 1, 2, 3, 4 })
+local t = torch.from_blob(buffer, { 2, 2 }, { dtype = "float32" })
+t:set(1, 1, 9)       -- buffer[0] is now 9
+```
+
+`shape` is a table of dimensions. `opts.dtype` defaults to `float32`.
+Array cdata sizes are checked with `ffi.sizeof`; pointer cdata must provide
+`opts.nbytes`. `opts.requires_grad` is honored. `float16` is not supported.
+
 ### Torch7-style constructors
 
 ```lua

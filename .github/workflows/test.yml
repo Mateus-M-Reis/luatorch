@@ -1,0 +1,46 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.compiler }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: ${{ matrix.compiler }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+      LIBTORCH_VERSION: "2.5.1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build luajit libluajit-5.1-dev curl unzip \
+            g++ clang
+
+      - name: Cache libtorch
+        uses: actions/cache@v4
+        with:
+          path: third_party/libtorch
+          key: libtorch-${{ env.LIBTORCH_VERSION }}-cxx11-shared-cpu-${{ runner.os }}
+
+      - name: Fetch libtorch
+        run: ./scripts/fetch_libtorch.sh
+
+      - name: Build shim
+        run: ./scripts/build.sh
+
+      - name: Run tests
+        run: ./scripts/test.sh

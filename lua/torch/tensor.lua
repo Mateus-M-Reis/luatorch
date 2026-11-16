@@ -357,6 +357,60 @@ local function from_scalar(value, opts)
   return apply_requires_grad(tensor, opts)
 end
 
+-- from_blob shares memory with an FFI array or Lua string.  The returned tensor
+-- retains `buffer` so the backing memory cannot be collected while the tensor
+-- lives.  Strings are immutable: treat their tensors as read-only.
+function Tensor.from_blob(buffer, shape, opts)
+  opts = opts or {}
+  check_device(opts)
+  if type(buffer) ~= "string" and type(buffer) ~= "cdata" then
+    error("torch.from_blob expects a string or FFI cdata buffer", 3)
+  end
+  if type(shape) ~= "table" or #shape == 0 then
+    error("torch.from_blob expects a non-empty shape table", 3)
+  end
+  local dtype = resolve_dtype(opts.dtype)
+  if dtype == nil then dtype = 0 end
+  if dtype == 8 then
+    error("from_blob does not support float16", 3)
+  end
+  local count = 1
+  for _, value in ipairs(shape) do
+    if type(value) ~= "number" or value % 1 ~= 0 or value < 0 then
+      error("torch.from_blob: shape entries must be non-negative integers", 3)
+    end
+    count = count * value
+  end
+  local element_size = ffi.sizeof(ctypes[dtype])
+  local needed = count * element_size
+  local available
+  if type(buffer) == "string" then
+    available = #buffer
+  else
+    local ok, bytes = pcall(ffi.sizeof, buffer)
+    if ok and bytes ~= ffi.sizeof("void*") then
+      available = bytes
+    else
+      available = tonumber(opts.nbytes)
+    end
+  end
+  if available == nil or available < needed then
+    error(string.format(
+      "torch.from_blob: buffer has %s bytes, need %d for shape[%s]",
+      tostring(available), needed, table.concat(shape, ", ")), 3)
+  end
+  local pointer
+  if type(buffer) == "string" then
+    pointer = ffi.cast("const char*", buffer)
+  else
+    pointer = ffi.cast("void*", buffer)
+  end
+  local array, ndim = shape_to_cdata(shape)
+  local tensor = wrap(lib.lt_from_blob(pointer, ndim, array, dtype))
+  tensor._owner = buffer
+  return apply_requires_grad(tensor, opts)
+end
+
 local function tensor_ctor(...)
   local args = { ... }
   if #args == 1 and type(args[1]) == "table" then
@@ -1437,10 +1491,6 @@ function Tensor:format()
   if count == 0 then
     return "tensor([]" .. suffix .. ")"
   end
-  if count > 1000 then
-    return string.format("tensor(shape=[%s], dtype=torch.%s, numel=%d)",
-      table.concat(self:sizes(), ", "), dtype, count)
-  end
   local is_float = is_dtype_floating(self:dtype_id())
   local function format_scalar(value)
     if type(value) == "boolean" then
@@ -1450,6 +1500,62 @@ function Tensor:format()
       return format_float(value)
     end
     return string.format("%d", math.floor(value))
+  end
+  if count > 1000 then
+    local dims = self:sizes()
+    local function values(t)
+      local parts = {}
+      for _, value in ipairs(t:totable()) do
+        parts[#parts + 1] = format_scalar(value)
+      end
+      return parts
+    end
+    if #dims == 1 then
+      local n = dims[1]
+      local head = math.min(4, n)
+      local tail = math.min(4, n)
+      local parts = values(self:narrow(1, 1, head))
+      if head + tail < n then parts[#parts + 1] = "..." end
+      if n > head then
+        for _, value in ipairs(values(self:narrow(1, n - tail + 1, tail))) do
+          parts[#parts + 1] = value
+        end
+      end
+      return string.format("tensor([%s], shape=[%s]%s)",
+        table.concat(parts, ", "), table.concat(dims, ", "), suffix)
+    elseif #dims == 2 then
+      local rows, columns = dims[1], dims[2]
+      local head_rows = math.min(3, rows)
+      local tail_rows = math.min(3, rows)
+      local head_cols = math.min(3, columns)
+      local tail_cols = math.min(3, columns)
+      local function row(t)
+        local parts = values(t:narrow(1, 1, head_cols))
+        if head_cols + tail_cols < columns then parts[#parts + 1] = "..." end
+        if columns > head_cols then
+          for _, value in ipairs(values(t:narrow(1,
+            columns - tail_cols + 1, tail_cols))) do
+            parts[#parts + 1] = value
+          end
+        end
+        return "[" .. table.concat(parts, ", ") .. "]"
+      end
+      local lines = {}
+      for r = 1, head_rows do lines[#lines + 1] = row(self:select(1, r)) end
+      if head_rows + tail_rows < rows then lines[#lines + 1] = "..." end
+      if rows > head_rows then
+        for r = rows - tail_rows + 1, rows do
+          lines[#lines + 1] = row(self:select(1, r))
+        end
+      end
+      local body = "[\n        " .. table.concat(lines, ",\n        ") ..
+        "]"
+      return string.format("tensor(%s, shape=[%s]%s)", body,
+        table.concat(dims, ", "), suffix)
+    else
+      return string.format("tensor(shape=[%s], dtype=torch.%s, numel=%d%s)",
+        table.concat(dims, ", "), dtype, count, suffix)
+    end
   end
   local body = render(self:totable(), 0, format_scalar)
   return "tensor(" .. body .. suffix .. ")"

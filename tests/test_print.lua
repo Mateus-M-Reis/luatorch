@@ -36,9 +36,25 @@ test("empty tensor", function()
   assert_eq(tostring(t), "tensor([])")
 end)
 
-test("large tensor summary", function()
+test("large 2-d tensor preview", function()
   local t = torch.zeros(100, 20)
-  assert_eq(tostring(t), "tensor(shape=[100, 20], dtype=torch.float32, numel=2000)")
+  local text = tostring(t)
+  assert_true(text:find("shape=[100, 20]", 1, true) ~= nil)
+  assert_true(text:find("...", 1, true) ~= nil)
+  assert_true(#text < 2000)
+end)
+
+test("large 1-d tensor preview", function()
+  local t = torch.zeros(2000)
+  local text = tostring(t)
+  assert_true(text:find("shape=[2000]", 1, true) ~= nil)
+  assert_true(text:find("...", 1, true) ~= nil)
+end)
+
+test("large 3-d tensor stays a shape summary", function()
+  local t = torch.zeros(20, 20, 20)
+  assert_eq(tostring(t),
+    "tensor(shape=[20, 20, 20], dtype=torch.float32, numel=8000)")
 end)
 
 test("tostring never crashes", function()

@@ -1380,6 +1380,23 @@ lt_tensor* lt_randperm(int64_t n, int dtype) {
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_from_blob(const void* data, int64_t ndim,
+                        const int64_t* sizes, int dtype) {
+  try {
+    clear_error();
+    std::vector<int64_t> shape = make_shape(ndim, sizes);
+    int64_t numel = 1;
+    for (int64_t size : shape) numel *= size;
+    if (data == nullptr && numel > 0) {
+      throw std::runtime_error("from_blob: null data pointer");
+    }
+    at::Tensor tensor = at::from_blob(const_cast<void*>(data), shape,
+                                      make_options(dtype));
+    return wrap(tensor);
+  }
+  LT_CATCH_NULL
+}
+
 lt_tensor* lt_from_data(const void* data, int64_t ndim, const int64_t* sizes, int dtype) {
   try {
     clear_error();
