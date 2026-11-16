@@ -22,11 +22,12 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.6.9"
+torch.VERSION = "0.7.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
 torch.is_tensor = Tensor.is_tensor
+torch.profiler = require("torch.profiler")
 torch.fuse = fuse
 torch.fuse_train = fuse.train
 torch.fuse_reduce = fuse.reduce

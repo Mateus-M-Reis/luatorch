@@ -17,6 +17,9 @@ local dtype_names = libmod.dtype_names
 
 local ALL_DIMS = -1000
 
+local profiler = require("torch.profiler")
+local profiled = {}
+
 local Tensor = {}
 local mt = {}
 
@@ -1476,6 +1479,14 @@ mt.__index = function(self, key)
   end
   local value = Tensor[key]
   if value ~= nil then
+    if profiler.is_enabled() and type(value) == "function" then
+      local wrapper = profiled[key]
+      if wrapper == nil then
+        wrapper = function(...) return profiler.call(key, value, ...) end
+        profiled[key] = wrapper
+      end
+      return wrapper
+    end
     return value
   end
   error(string.format("torch.Tensor has no field '%s'", tostring(key)), 2)

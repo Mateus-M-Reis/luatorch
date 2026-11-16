@@ -163,6 +163,7 @@ local files = {
   "test_luafun.lua",
   "test_io.lua",
   "test_print.lua",
+  "test_profiler.lua",
   "test_errors.lua",
 }
 

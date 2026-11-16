@@ -108,14 +108,28 @@ What the table actually says:
 - Benchmark variance is real: this CPU throttles under sustained load. The
   harness uses best-of-N and one thread; rerun it for your machine.
 
+## Profiling
+
+`torch.profiler` optionally records per-tensor-method call counts and CPU time,
+without changing kernels:
+
+```lua
+torch.profiler.start()
+local y = model:forward(x)
+torch.profiler.stop()
+print(torch.profiler.format())
+```
+
+See [docs/profiler.md](docs/profiler.md) for scope and limitations.
+
 ## Status
 
-> **0.6.9 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.7.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
 > backward are implemented, along with fused last-dimension `softmax`,
-> `log_softmax`, and cross-entropy, and covered by **261 tests**. CUDA, higher-order
-> autograd, fused softmax, and more `nn` layers are next
+> `log_softmax`, and cross-entropy, and covered by **265 tests**. CUDA, higher-order
+> autograd, and more `nn` layers are next
 > (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start

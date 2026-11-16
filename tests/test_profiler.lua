@@ -1,0 +1,62 @@
+local torch = require("torch")
+
+test("version is 0.7.0", function()
+  assert_eq(torch.VERSION, "0.7.0")
+end)
+
+test("profiler counts tensor method calls", function()
+  torch.profiler.stop()
+  torch.profiler.start()
+  local a = torch.ones(2, 2)
+  local b = torch.ones(2, 2)
+  local c = a:add(b)
+  c:matmul(b)
+  torch.profiler.stop()
+
+  local rows = torch.profiler.report()
+  local by_name = {}
+  for _, row in ipairs(rows) do by_name[row.name] = row end
+  assert_true(by_name.add ~= nil, "add was not profiled")
+  assert_true(by_name.matmul ~= nil, "matmul was not profiled")
+  assert_true(by_name.add.count >= 1)
+  assert_true(by_name.add.total >= 0)
+  assert_true(by_name.add.average >= 0)
+  assert_true(by_name.add.max >= 0)
+  assert_true(torch.profiler.format():find("tensor method calls", 1, true) ~= nil)
+end)
+
+test("profiler counts errors and preserves multi-returns", function()
+  torch.profiler.start()
+  local matrix = torch.eye(2)
+  local wrong = torch.ones(3, 3)
+  local ok = pcall(function() matrix:matmul(wrong) end)
+  assert_false(ok, "shape error should propagate")
+  local u, s, vh = matrix:svd(false)
+  torch.profiler.stop()
+  assert_shape(u, { 2, 2 })
+  assert_shape(s, { 2 })
+  assert_shape(vh, { 2, 2 })
+
+  local rows = torch.profiler.report()
+  local by_name = {}
+  for _, row in ipairs(rows) do by_name[row.name] = row end
+  assert_true(by_name.matmul ~= nil)
+  assert_true(by_name.matmul.count >= 1)
+  assert_true(by_name.svd ~= nil)
+end)
+
+test("profiler stops recording when disabled and resets", function()
+  torch.profiler.stop()
+  torch.profiler.reset()
+  local a = torch.ones(2)
+  a:add(a)
+  assert_eq(#torch.profiler.report(), 0)
+
+  torch.profiler.start()
+  a:add(a)
+  torch.profiler.stop()
+  assert_true(#torch.profiler.report() > 0)
+  torch.profiler.reset()
+  assert_eq(#torch.profiler.report(), 0)
+  assert_eq(torch.profiler.format(), "profiler: no tensor method calls recorded")
+end)
