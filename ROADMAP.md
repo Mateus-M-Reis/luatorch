@@ -39,7 +39,8 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [ ] PyTorch state-dict interop
 - [ ] More layers: ConvTranspose2d, GroupNorm, RNN/LSTM
 - [ ] Loss options: class weights, `ignore_index`, label smoothing
-- [ ] Optimizer extras: AMSGrad, per-parameter groups
+- [x] AMSGrad optimizer mode (fused)
+- [ ] Per-parameter optimizer groups
 - [x] `ReduceLROnPlateau` scheduler
 
 ## v0.3 — tensor completeness (partial)

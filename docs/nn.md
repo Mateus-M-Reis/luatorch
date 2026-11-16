@@ -215,8 +215,8 @@ All optimizers take `(parameters, options)` and expose `step()` and
 | Optimizer | Options |
 | --- | --- |
 | `optim.SGD` | `lr`, `momentum`, `dampening`, `weight_decay`, `nesterov` |
-| `optim.Adam` | `lr`, `betas = {b1, b2}`, `eps`, `weight_decay` |
-| `optim.AdamW` | Adam with decoupled weight decay |
+| `optim.Adam` | `lr`, `betas = {b1, b2}`, `eps`, `weight_decay`, `amsgrad` |
+| `optim.AdamW` | Adam with decoupled weight decay and optional `amsgrad` |
 | `optim.RMSprop` | `lr`, `alpha`, `eps`, `weight_decay`, `momentum`, `centered` |
 | `optim.Adagrad` | `lr`, `lr_decay`, `weight_decay`, `eps`, `initial_accumulator_value` |
 
@@ -233,7 +233,8 @@ reshaped back. This avoids a separate bias kernel and temporary.
 
 Adam, AdamW, SGD, RMSprop and Adagrad execute their update in a single C kernel
 over contiguous float32/float64 storage, instead of a chain of temporary tensor
-ops. On a 784→256→10 MLP this reduces the Adam step from ~1.14 ms (PyTorch) to
+ops. Adam/AdamW with `amsgrad = true` use the fused AMSGrad kernel and track the
+maximum second moment per parameter. On a 784→256→10 MLP this reduces the Adam step from ~1.14 ms (PyTorch) to
 ~0.22 ms, and the complete training step from ~5.1 ms to ~4.0 ms.
 
 Parameters, gradients and optimizer state must be contiguous and float32 or

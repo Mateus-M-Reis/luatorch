@@ -299,6 +299,11 @@ lt_tensor* lt_any(lt_tensor* a, int64_t dim, int keepdim);
 /* serialization (PyTorch zip format, readable by torch.load in C++)  */
 /* ------------------------------------------------------------------ */
 /* fused optimizer updates; tensors must be contiguous and float32/float64 */
+int lt_adam_amsgrad_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* exp_avg, lt_tensor* exp_avg_sq, lt_tensor* max_exp_avg_sq,
+    double lr, double beta1, double beta2, double eps,
+    double weight_decay, int64_t step, int decoupled);
 int lt_adam_step(
     lt_tensor* parameter, const lt_tensor* gradient,
     lt_tensor* exp_avg, lt_tensor* exp_avg_sq,

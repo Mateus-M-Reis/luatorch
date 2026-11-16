@@ -28,6 +28,7 @@ function Adam.new(params, options)
   self.eps = options.eps or 1e-8
   self.weight_decay = options.weight_decay or 0
   self.decoupled_weight_decay = false
+  self.amsgrad = options.amsgrad or false
   return self
 end
 
@@ -40,6 +41,9 @@ function Adam:step()
         state.step = 0
         state.exp_avg = torch.zeros_like(parameter)
         state.exp_avg_sq = torch.zeros_like(parameter)
+        if self.amsgrad then
+          state.max_exp_avg_sq = torch.zeros_like(parameter)
+        end
       end
       state.step = state.step + 1
 
@@ -47,11 +51,20 @@ function Adam:step()
         gradient = gradient:contiguous()
       end
 
-      local status = lib.lt_adam_step(
-        parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
-        self.lr, self.beta1, self.beta2, self.eps,
-        self.weight_decay, state.step,
-        self.decoupled_weight_decay and 1 or 0)
+      local status
+      if self.amsgrad then
+        status = lib.lt_adam_amsgrad_step(
+          parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
+          state.max_exp_avg_sq.h, self.lr, self.beta1, self.beta2, self.eps,
+          self.weight_decay, state.step,
+          self.decoupled_weight_decay and 1 or 0)
+      else
+        status = lib.lt_adam_step(
+          parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
+          self.lr, self.beta1, self.beta2, self.eps,
+          self.weight_decay, state.step,
+          self.decoupled_weight_decay and 1 or 0)
+      end
       if status ~= 0 then
         error(ffi.string(lib.lt_last_error()), 3)
       end

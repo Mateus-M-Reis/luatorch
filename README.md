@@ -135,7 +135,7 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
 > backward are implemented, along with fused last-dimension `softmax`,
-> `log_softmax`, and cross-entropy, and covered by **274 tests**. CUDA, higher-order
+> `log_softmax`, and cross-entropy, and covered by **277 tests**. CUDA, higher-order
 > autograd, and more `nn` layers are next
 > (see [ROADMAP.md](ROADMAP.md)).
 

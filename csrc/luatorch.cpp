@@ -345,12 +345,15 @@ template <typename scalar_t>
 void adam_step_typed(
     at::Tensor& parameter, const at::Tensor& gradient,
     at::Tensor& exp_avg, at::Tensor& exp_avg_sq,
+    at::Tensor* max_exp_avg_sq,
     double lr, double beta1, double beta2, double eps,
     double weight_decay, int64_t step, bool decoupled) {
   scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
   const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
   scalar_t* __restrict m = exp_avg.mutable_data_ptr<scalar_t>();
   scalar_t* __restrict v = exp_avg_sq.mutable_data_ptr<scalar_t>();
+  scalar_t* __restrict vmax = max_exp_avg_sq != nullptr
+      ? max_exp_avg_sq->mutable_data_ptr<scalar_t>() : nullptr;
   const int64_t n = parameter.numel();
 
   const scalar_t beta1_s = static_cast<scalar_t>(beta1);
@@ -384,8 +387,13 @@ void adam_step_typed(
         beta2_s * v[i] + one_minus_beta2 * gradient_value * gradient_value;
     m[i] = first_moment;
     v[i] = second_moment;
+    scalar_t denominator_source = second_moment;
+    if (vmax != nullptr) {
+      if (second_moment > vmax[i]) vmax[i] = second_moment;
+      denominator_source = vmax[i];
+    }
     const scalar_t denominator =
-        std::sqrt(second_moment) * inverse_bias_correction2_sqrt + eps_s;
+        std::sqrt(denominator_source) * inverse_bias_correction2_sqrt + eps_s;
     parameter_value -= step_size * first_moment / denominator;
     p[i] = parameter_value;
   }
@@ -598,12 +606,46 @@ int lt_adam_step(
 
     if (parameter->t.scalar_type() == at::kFloat) {
       adam_step_typed<float>(parameter->t, gradient->t, exp_avg->t,
-        exp_avg_sq->t, lr, beta1, beta2, eps, weight_decay, step, decoupled != 0);
+        exp_avg_sq->t, nullptr, lr, beta1, beta2, eps, weight_decay, step,
+        decoupled != 0);
     } else if (parameter->t.scalar_type() == at::kDouble) {
       adam_step_typed<double>(parameter->t, gradient->t, exp_avg->t,
-        exp_avg_sq->t, lr, beta1, beta2, eps, weight_decay, step, decoupled != 0);
+        exp_avg_sq->t, nullptr, lr, beta1, beta2, eps, weight_decay, step,
+        decoupled != 0);
     } else {
       throw std::runtime_error("adam_step: float32 or float64 parameters required");
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
+int lt_adam_amsgrad_step(
+    lt_tensor* parameter, const lt_tensor* gradient,
+    lt_tensor* exp_avg, lt_tensor* exp_avg_sq, lt_tensor* max_exp_avg_sq,
+    double lr, double beta1, double beta2, double eps,
+    double weight_decay, int64_t step, int decoupled) {
+  try {
+    clear_error();
+    if (step <= 0) {
+      throw std::runtime_error("adam_amsgrad_step: step must be positive");
+    }
+    require_optimizer_tensor(parameter->t, gradient->t, "adam_amsgrad_step gradient");
+    require_optimizer_tensor(parameter->t, exp_avg->t, "adam_amsgrad_step exp_avg");
+    require_optimizer_tensor(parameter->t, exp_avg_sq->t, "adam_amsgrad_step exp_avg_sq");
+    require_optimizer_tensor(parameter->t, max_exp_avg_sq->t,
+                             "adam_amsgrad_step max_exp_avg_sq");
+    if (parameter->t.scalar_type() == at::kFloat) {
+      adam_step_typed<float>(parameter->t, gradient->t, exp_avg->t,
+        exp_avg_sq->t, &max_exp_avg_sq->t, lr, beta1, beta2, eps,
+        weight_decay, step, decoupled != 0);
+    } else if (parameter->t.scalar_type() == at::kDouble) {
+      adam_step_typed<double>(parameter->t, gradient->t, exp_avg->t,
+        exp_avg_sq->t, &max_exp_avg_sq->t, lr, beta1, beta2, eps,
+        weight_decay, step, decoupled != 0);
+    } else {
+      throw std::runtime_error(
+        "adam_amsgrad_step: float32 or float64 parameters required");
     }
     return 0;
   }

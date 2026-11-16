@@ -23,6 +23,48 @@ test("AdamW decouples weight decay", function()
   assert_near(parameter:totable(), { 0.95, 1.9 }, 1e-6)
 end)
 
+test("Adam AMSGrad tracks the maximum second moment and converges", function()
+  local parameter = torch.tensor({ 5, -3 }, { requires_grad = true })
+  local optimizer = optim.Adam({ parameter }, { lr = 0.1, amsgrad = true })
+  for _ = 1, 200 do
+    optimizer:zero_grad()
+    parameter:pow(2):sum():backward()
+    optimizer:step()
+  end
+  assert_true(parameter:abs():max():item() < 1e-3)
+  local state = optimizer:state_for(parameter)
+  assert_true(state.max_exp_avg_sq ~= nil)
+  assert_shape(state.max_exp_avg_sq, { 2 })
+end)
+
+test("Adam and AMSGrad diverge on changing gradients", function()
+  local plain = torch.tensor({ 1.0 }, { requires_grad = true })
+  local ams = torch.tensor({ 1.0 }, { requires_grad = true })
+  local plain_opt = optim.Adam({ plain }, { lr = 0.1 })
+  local ams_opt = optim.Adam({ ams }, { lr = 0.1, amsgrad = true })
+  for step = 1, 4 do
+    plain_opt:zero_grad(); ams_opt:zero_grad()
+    local gradient = torch.tensor({ 10 ^ (1 - step) })
+    plain:sum():backward(gradient)
+    ams:sum():backward(gradient)
+    plain_opt:step(); ams_opt:step()
+  end
+  assert_true(math.abs(plain:item() - ams:item()) > 1e-6)
+end)
+
+test("AdamW accepts amsgrad", function()
+  local parameter = torch.tensor({ 2, -2 }, { requires_grad = true })
+  local optimizer = optim.AdamW({ parameter },
+    { lr = 0.05, weight_decay = 0.01, amsgrad = true })
+  for _ = 1, 200 do
+    optimizer:zero_grad()
+    parameter:pow(2):sum():backward()
+    optimizer:step()
+  end
+  assert_true(parameter:abs():max():item() < 0.5)
+  assert_true(optimizer:state_for(parameter).max_exp_avg_sq ~= nil)
+end)
+
 test("clip_grad_norm_ scales gradients", function()
   local parameter = torch.tensor({ 3, 4 }, { requires_grad = true })
   parameter:sum():backward()
