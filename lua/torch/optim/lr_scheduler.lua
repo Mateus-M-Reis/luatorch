@@ -133,6 +133,75 @@ function CosineAnnealingLR:step()
   return self
 end
 
+-- ReduceLROnPlateau ----------------------------------------------------------
+
+local ReduceLROnPlateau = class("ReduceLROnPlateau")
+
+function ReduceLROnPlateau.new(optimizer, options)
+  options = options or {}
+  local self = setmetatable(Scheduler.new(optimizer), ReduceLROnPlateau)
+  self.mode = options.mode or "min"
+  self.factor = options.factor or 0.1
+  self.patience = options.patience or 10
+  self.threshold = options.threshold or 1e-4
+  self.threshold_mode = options.threshold_mode or "rel"
+  self.cooldown = options.cooldown or 0
+  self.min_lr = options.min_lr or 0
+  self.eps = options.eps or 1e-8
+  self.best = nil
+  self.num_bad_epochs = 0
+  self.cooldown_counter = 0
+  if self.mode ~= "min" and self.mode ~= "max" then
+    error("ReduceLROnPlateau: mode must be 'min' or 'max'", 3)
+  end
+  if type(self.factor) ~= "number" or self.factor <= 0 or self.factor >= 1 then
+    error("ReduceLROnPlateau: factor must be in (0, 1)", 3)
+  end
+  if type(self.patience) ~= "number" or self.patience < 0 then
+    error("ReduceLROnPlateau: patience must be non-negative", 3)
+  end
+  return self
+end
+
+function ReduceLROnPlateau:_is_better(value)
+  if self.best == nil then return true end
+  if self.threshold_mode == "abs" then
+    if self.mode == "min" then
+      return value < self.best - self.threshold
+    end
+    return value > self.best + self.threshold
+  end
+  if self.mode == "min" then
+    return value < self.best * (1 - self.threshold)
+  end
+  return value > self.best * (1 + self.threshold)
+end
+
+function ReduceLROnPlateau:step(metric)
+  if type(metric) ~= "number" or metric ~= metric then
+    error("ReduceLROnPlateau:step expects a numeric metric", 3)
+  end
+  Scheduler.step(self)
+  if self.cooldown_counter > 0 then
+    self.cooldown_counter = self.cooldown_counter - 1
+    self.num_bad_epochs = 0
+    return self
+  end
+  if self:_is_better(metric) then
+    self.best = metric
+    self.num_bad_epochs = 0
+  else
+    self.num_bad_epochs = self.num_bad_epochs + 1
+  end
+  if self.num_bad_epochs > self.patience then
+    local reduced = self.optimizer.lr * self.factor
+    self.optimizer.lr = math.max(self.min_lr, reduced)
+    self.num_bad_epochs = 0
+    self.cooldown_counter = self.cooldown
+  end
+  return self
+end
+
 -- LambdaLR -------------------------------------------------------------------
 
 local LambdaLR = class("LambdaLR")
@@ -158,5 +227,6 @@ return {
   MultiStepLR = MultiStepLR,
   ExponentialLR = ExponentialLR,
   CosineAnnealingLR = CosineAnnealingLR,
+  ReduceLROnPlateau = ReduceLROnPlateau,
   LambdaLR = LambdaLR,
 }

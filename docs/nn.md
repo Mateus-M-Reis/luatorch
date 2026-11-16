@@ -263,9 +263,15 @@ local scheduler4 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max)
 local scheduler5 = optim.lr_scheduler.LambdaLR(optimizer, function(epoch)
   return 1 / epoch
 end)
+local scheduler6 = optim.lr_scheduler.ReduceLROnPlateau(optimizer, {
+  mode = "min", factor = 0.5, patience = 5, min_lr = 1e-6,
+})
 ```
 
 Schedulers mutate `optimizer.lr`; they do not own parameter state.
+`ReduceLROnPlateau:step(metric)` takes the validation metric and reduces the
+rate after `patience` non-improving epochs, with optional cooldown and `min_lr`
+clamping.
 
 Create the optimizer **after** converting the model dtype, because
 `module:to(dtype)` replaces parameter objects:

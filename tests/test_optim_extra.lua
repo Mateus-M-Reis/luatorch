@@ -95,6 +95,48 @@ test("CosineAnnealingLR", function()
   assert_true(minimum >= 0)
 end)
 
+test("ReduceLROnPlateau reduces after patience", function()
+  local optimizer = optim.SGD({ torch.zeros(1, { requires_grad = true }) },
+    { lr = 1 })
+  local scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+    { mode = "min", factor = 0.5, patience = 1, threshold = 0 })
+  scheduler:step(1)
+  assert_near(optimizer.lr, 1)
+  scheduler:step(2)
+  assert_near(optimizer.lr, 1)
+  scheduler:step(3)
+  assert_near(optimizer.lr, 0.5)
+  scheduler:step(4) -- bad, but patience resets to zero and allows one
+  assert_near(optimizer.lr, 0.5)
+  scheduler:step(5)
+  assert_near(optimizer.lr, 0.25)
+end)
+
+test("ReduceLROnPlateau supports max mode and min_lr", function()
+  local optimizer = optim.SGD({ torch.zeros(1, { requires_grad = true }) },
+    { lr = 1 })
+  local scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+    { mode = "max", factor = 0.5, patience = 0, threshold = 0, min_lr = 0.3 })
+  scheduler:step(10) -- new best
+  scheduler:step(9)  -- worse: reduce
+  assert_near(optimizer.lr, 0.5)
+  scheduler:step(8)  -- worse: reduce, clamp
+  assert_near(optimizer.lr, 0.3)
+end)
+
+test("ReduceLROnPlateau validates options and metrics", function()
+  local optimizer = optim.SGD({ torch.zeros(1, { requires_grad = true }) },
+    { lr = 1 })
+  assert_error(function()
+    optim.lr_scheduler.ReduceLROnPlateau(optimizer, { mode = "sideways" })
+  end, "mode")
+  assert_error(function()
+    optim.lr_scheduler.ReduceLROnPlateau(optimizer, { factor = 1 })
+  end, "factor")
+  local scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+  assert_error(function() scheduler:step(nil) end, "numeric metric")
+end)
+
 test("LambdaLR", function()
   local optimizer = optim.SGD({ torch.zeros(1, { requires_grad = true }) },
     { lr = 2 })
