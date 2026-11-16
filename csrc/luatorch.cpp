@@ -43,6 +43,16 @@ void lt_softmax_backward_f64(
 #include <utility>
 #include <vector>
 
+// libtorch is built with GCC.  Clang mangles the dependent enable_if template
+// argument of at::TensorBase::const_data_ptr<T>() differently from GCC, so a
+// Clang-compiled shim leaves an undefined symbol that only fails when that
+// code path first runs.  Read through the non-template void* overload instead;
+// it has one stable C++ mangling and is exported by libtorch_cpu.
+template <typename T>
+inline const T* tensor_const_ptr(const at::Tensor& tensor) {
+  return static_cast<const T*>(tensor.const_data_ptr());
+}
+
 struct lt_tensor {
   at::Tensor t;
 };
@@ -349,7 +359,7 @@ void adam_step_typed(
     double lr, double beta1, double beta2, double eps,
     double weight_decay, int64_t step, bool decoupled) {
   scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
-  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = tensor_const_ptr<scalar_t>(gradient);
   scalar_t* __restrict m = exp_avg.mutable_data_ptr<scalar_t>();
   scalar_t* __restrict v = exp_avg_sq.mutable_data_ptr<scalar_t>();
   scalar_t* __restrict vmax = max_exp_avg_sq != nullptr
@@ -406,7 +416,7 @@ void sgd_step_typed(
     double lr, double momentum, double dampening,
     double weight_decay, bool nesterov, bool first_step) {
   scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
-  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = tensor_const_ptr<scalar_t>(gradient);
   scalar_t* __restrict buffer = momentum_buffer != nullptr
       ? momentum_buffer->mutable_data_ptr<scalar_t>()
       : nullptr;
@@ -448,7 +458,7 @@ void rmsprop_step_typed(
     double lr, double alpha, double eps, double weight_decay,
     double momentum, bool centered) {
   scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
-  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = tensor_const_ptr<scalar_t>(gradient);
   scalar_t* __restrict square = square_avg.mutable_data_ptr<scalar_t>();
   scalar_t* __restrict average_grad = grad_avg != nullptr
       ? grad_avg->mutable_data_ptr<scalar_t>()
@@ -501,7 +511,7 @@ void adagrad_step_typed(
     double lr, double lr_decay, double weight_decay,
     double eps, int64_t step) {
   scalar_t* __restrict p = parameter.mutable_data_ptr<scalar_t>();
-  const scalar_t* __restrict g = gradient.const_data_ptr<scalar_t>();
+  const scalar_t* __restrict g = tensor_const_ptr<scalar_t>(gradient);
   scalar_t* __restrict accumulator = sum.mutable_data_ptr<scalar_t>();
   const int64_t n = parameter.numel();
 
@@ -525,7 +535,7 @@ void adagrad_step_typed(
 
 template <typename scalar_t>
 double gradient_norm_squared(const at::Tensor& gradient) {
-  const scalar_t* data = gradient.const_data_ptr<scalar_t>();
+  const scalar_t* data = tensor_const_ptr<scalar_t>(gradient);
   const int64_t count = gradient.numel();
   double total = 0.0;
   for (int64_t i = 0; i < count; ++i) {
@@ -537,7 +547,7 @@ double gradient_norm_squared(const at::Tensor& gradient) {
 
 template <typename scalar_t>
 double gradient_max_abs(const at::Tensor& gradient) {
-  const scalar_t* data = gradient.const_data_ptr<scalar_t>();
+  const scalar_t* data = tensor_const_ptr<scalar_t>(gradient);
   const int64_t count = gradient.numel();
   double maximum = 0.0;
   for (int64_t i = 0; i < count; ++i) {
@@ -782,7 +792,7 @@ class FusedAutogradFunction
     auto scalars_tensor = ctx->saved_data["scalars"].toTensor();
     const int64_t scalar_count = scalars_tensor.numel();
     const double* scalars = scalar_count > 0
-        ? scalars_tensor.const_data_ptr<double>()
+        ? tensor_const_ptr<double>(scalars_tensor)
         : nullptr;
     (void)forward_kernel;
 
@@ -909,7 +919,7 @@ class FusedReduceAutogradFunction
     auto scalars_tensor = ctx->saved_data["scalars"].toTensor();
     const int64_t scalar_count = scalars_tensor.numel();
     const double* scalars = scalar_count > 0
-        ? scalars_tensor.const_data_ptr<double>()
+        ? tensor_const_ptr<double>(scalars_tensor)
         : nullptr;
 
     if (grad_outputs.empty() || !grad_outputs[0].defined()) {
@@ -972,11 +982,11 @@ class FusedLogSoftmaxFunction
     at::Tensor output = at::empty_like(contiguous);
     if (dtype == at::kFloat) {
       lt_log_softmax_f32(
-          contiguous.const_data_ptr<float>(),
+          tensor_const_ptr<float>(contiguous),
           output.mutable_data_ptr<float>(), rows, columns);
     } else {
       lt_log_softmax_f64(
-          contiguous.const_data_ptr<double>(),
+          tensor_const_ptr<double>(contiguous),
           output.mutable_data_ptr<double>(), rows, columns);
     }
     ctx->save_for_backward({output});
@@ -1000,13 +1010,13 @@ class FusedLogSoftmaxFunction
     at::Tensor gradient = at::empty_like(output);
     if (output.scalar_type() == at::kFloat) {
       lt_log_softmax_backward_f32(
-          output.const_data_ptr<float>(),
-          grad_output.const_data_ptr<float>(),
+          tensor_const_ptr<float>(output),
+          tensor_const_ptr<float>(grad_output),
           gradient.mutable_data_ptr<float>(), rows, columns);
     } else {
       lt_log_softmax_backward_f64(
-          output.const_data_ptr<double>(),
-          grad_output.const_data_ptr<double>(),
+          tensor_const_ptr<double>(output),
+          tensor_const_ptr<double>(grad_output),
           gradient.mutable_data_ptr<double>(), rows, columns);
     }
     return {gradient};
@@ -1042,7 +1052,7 @@ class FusedCrossEntropyFunction
     if (rows <= 0 || columns <= 0) {
       throw std::runtime_error("fused cross_entropy needs a non-empty input");
     }
-    const int64_t* labels = target_contiguous.const_data_ptr<int64_t>();
+    const int64_t* labels = tensor_const_ptr<int64_t>(target_contiguous);
     for (int64_t row = 0; row < rows; ++row) {
       if (labels[row] < 0 || labels[row] >= columns) {
         throw std::runtime_error("fused cross_entropy target out of range");
@@ -1053,17 +1063,17 @@ class FusedCrossEntropyFunction
     double total = 0.0;
     if (dtype == at::kFloat) {
       lt_log_softmax_f32(
-          logits_contiguous.const_data_ptr<float>(),
+          tensor_const_ptr<float>(logits_contiguous),
           log_probabilities.mutable_data_ptr<float>(), rows, columns);
-      const float* data = log_probabilities.const_data_ptr<float>();
+      const float* data = tensor_const_ptr<float>(log_probabilities);
       for (int64_t row = 0; row < rows; ++row) {
         total -= static_cast<double>(data[row * columns + labels[row]]);
       }
     } else {
       lt_log_softmax_f64(
-          logits_contiguous.const_data_ptr<double>(),
+          tensor_const_ptr<double>(logits_contiguous),
           log_probabilities.mutable_data_ptr<double>(), rows, columns);
-      const double* data = log_probabilities.const_data_ptr<double>();
+      const double* data = tensor_const_ptr<double>(log_probabilities);
       for (int64_t row = 0; row < rows; ++row) {
         total -= data[row * columns + labels[row]];
       }
@@ -1098,9 +1108,9 @@ class FusedCrossEntropyFunction
     const int64_t columns = log_probabilities.size(1);
     double scale;
     if (log_probabilities.scalar_type() == at::kFloat) {
-      scale = static_cast<double>(grad_output.const_data_ptr<float>()[0]);
+      scale = static_cast<double>(tensor_const_ptr<float>(grad_output)[0]);
     } else {
-      scale = grad_output.const_data_ptr<double>()[0];
+      scale = tensor_const_ptr<double>(grad_output)[0];
     }
     if (reduction == 1) {
       scale /= static_cast<double>(rows);
@@ -1108,13 +1118,13 @@ class FusedCrossEntropyFunction
     at::Tensor grad_logits = at::empty_like(log_probabilities);
     if (log_probabilities.scalar_type() == at::kFloat) {
       lt_cross_entropy_backward_f32(
-          log_probabilities.const_data_ptr<float>(),
-          target.const_data_ptr<int64_t>(),
+          tensor_const_ptr<float>(log_probabilities),
+          tensor_const_ptr<int64_t>(target),
           grad_logits.mutable_data_ptr<float>(), scale, rows, columns);
     } else {
       lt_cross_entropy_backward_f64(
-          log_probabilities.const_data_ptr<double>(),
-          target.const_data_ptr<int64_t>(),
+          tensor_const_ptr<double>(log_probabilities),
+          tensor_const_ptr<int64_t>(target),
           grad_logits.mutable_data_ptr<double>(), scale, rows, columns);
     }
     return {grad_logits, at::Tensor(), at::Tensor()};
@@ -1142,11 +1152,11 @@ class FusedSoftmaxFunction
     at::Tensor output = at::empty_like(contiguous);
     if (dtype == at::kFloat) {
       lt_softmax_f32(
-          contiguous.const_data_ptr<float>(),
+          tensor_const_ptr<float>(contiguous),
           output.mutable_data_ptr<float>(), rows, columns);
     } else {
       lt_softmax_f64(
-          contiguous.const_data_ptr<double>(),
+          tensor_const_ptr<double>(contiguous),
           output.mutable_data_ptr<double>(), rows, columns);
     }
     ctx->save_for_backward({output});
@@ -1170,13 +1180,13 @@ class FusedSoftmaxFunction
     at::Tensor gradient = at::empty_like(output);
     if (output.scalar_type() == at::kFloat) {
       lt_softmax_backward_f32(
-          output.const_data_ptr<float>(),
-          grad_output.const_data_ptr<float>(),
+          tensor_const_ptr<float>(output),
+          tensor_const_ptr<float>(grad_output),
           gradient.mutable_data_ptr<float>(), rows, columns);
     } else {
       lt_softmax_backward_f64(
-          output.const_data_ptr<double>(),
-          grad_output.const_data_ptr<double>(),
+          tensor_const_ptr<double>(output),
+          tensor_const_ptr<double>(grad_output),
           gradient.mutable_data_ptr<double>(), rows, columns);
     }
     return {gradient};
