@@ -381,6 +381,29 @@ function torch.conv2d(input, weight, bias, stride, padding, dilation, groups)
     groups or 1))
 end
 
+function torch.conv_transpose2d(input, weight, bias, stride, padding,
+    output_padding, groups, dilation)
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(weight) then
+    error("torch.conv_transpose2d expects input and weight tensors", 2)
+  end
+  local stride_h, stride_w = as_pair(stride or 1, "stride")
+  local pad_h, pad_w = as_pair(padding or 0, "padding")
+  local output_pad_h, output_pad_w = as_pair(output_padding or 0,
+    "output_padding")
+  local dilation_h, dilation_w = as_pair(dilation or 1, "dilation")
+  local bias_pointer = nil
+  if bias ~= nil and bias ~= false then
+    if not Tensor.is_tensor(bias) then
+      error("torch.conv_transpose2d: bias must be a Tensor or nil", 2)
+    end
+    bias_pointer = bias.h
+  end
+  return Tensor._wrap(lib.lt_conv_transpose2d(
+    input.h, weight.h, bias_pointer,
+    stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w,
+    dilation_h, dilation_w, groups or 1))
+end
+
 function torch.max_pool2d(input, kernel_size, stride, padding, dilation, ceil_mode)
   if not Tensor.is_tensor(input) then
     error("torch.max_pool2d expects a Tensor", 2)

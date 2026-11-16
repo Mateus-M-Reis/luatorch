@@ -85,6 +85,12 @@ function F.conv2d(input, weight, bias, stride, padding, dilation, groups)
   return torch.conv2d(input, weight, bias, stride, padding, dilation, groups)
 end
 
+function F.conv_transpose2d(input, weight, bias, stride, padding,
+    output_padding, groups, dilation)
+  return torch.conv_transpose2d(input, weight, bias, stride, padding,
+    output_padding, groups, dilation)
+end
+
 function F.max_pool2d(input, kernel_size, stride, padding, dilation, ceil_mode)
   return torch.max_pool2d(input, kernel_size, stride, padding, dilation, ceil_mode)
 end

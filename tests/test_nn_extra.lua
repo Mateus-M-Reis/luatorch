@@ -78,6 +78,29 @@ test("LayerNorm gradients and affine toggle", function()
   assert_shape(plain(torch.randn(2, 3)), { 2, 3 })
 end)
 
+test("ConvTranspose2d upsamples and backpropagates", function()
+  local layer = nn.ConvTranspose2d(1, 1, 1, 1, 0, 0, 1, false)
+  torch.no_grad(function() layer.weight:fill_(2) end)
+  local input = torch.tensor({ { { { 1, 2 }, { 3, 4 } } } }):requires_grad_(true)
+  local output = layer(input)
+  assert_shape(output, { 1, 1, 2, 2 })
+  assert_tensor(output, { { { { 2, 4 }, { 6, 8 } } } })
+  output:sum():backward()
+  assert_true(input:grad() ~= nil)
+  assert_true(layer.weight:grad() ~= nil)
+
+  local up = nn.ConvTranspose2d(1, 1, 2, 2, 0, 1, 1, false)
+  assert_shape(up(torch.ones(1, 1, 2, 2)), { 1, 1, 5, 5 })
+  assert_true(tostring(layer):find("ConvTranspose2d", 1, true) ~= nil)
+end)
+
+test("ConvTranspose2d validates options", function()
+  assert_error(function() nn.ConvTranspose2d(3, 4, 2, 2, 0, 2) end,
+    "output_padding")
+  assert_error(function() nn.ConvTranspose2d(3, 4, 2, 1, 0, 0, 2) end,
+    "divisible")
+end)
+
 test("GroupNorm normalizes groups and backpropagates", function()
   local normalization = nn.GroupNorm(2, 4)
   assert_shape(normalization.weight, { 4 })

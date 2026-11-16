@@ -2179,6 +2179,30 @@ lt_tensor* lt_conv2d(
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_conv_transpose2d(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t output_pad_h, int64_t output_pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups) {
+  try {
+    clear_error();
+    std::optional<at::Tensor> bias_tensor;
+    if (bias != nullptr) {
+      bias_tensor = bias->t;
+    }
+    return wrap(at::conv_transpose2d(
+        input->t, weight->t, bias_tensor,
+        at::IntArrayRef({stride_h, stride_w}),
+        at::IntArrayRef({pad_h, pad_w}),
+        at::IntArrayRef({output_pad_h, output_pad_w}),
+        groups,
+        at::IntArrayRef({dilation_h, dilation_w})));
+  }
+  LT_CATCH_NULL
+}
+
 lt_tensor* lt_max_pool2d(
     lt_tensor* input,
     int64_t kernel_h, int64_t kernel_w,

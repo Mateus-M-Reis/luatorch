@@ -214,6 +214,13 @@ lt_tensor* lt_conv2d(
     int64_t pad_h, int64_t pad_w,
     int64_t dilation_h, int64_t dilation_w,
     int64_t groups);
+lt_tensor* lt_conv_transpose2d(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t output_pad_h, int64_t output_pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups);
 lt_tensor* lt_max_pool2d(
     lt_tensor* input,
     int64_t kernel_h, int64_t kernel_w,
