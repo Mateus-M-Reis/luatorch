@@ -88,6 +88,70 @@ function BatchNorm2d:format()
     self.num_features, self.eps, self.momentum)
 end
 
+local GroupNorm = Module.class("GroupNorm")
+
+function GroupNorm.new(num_groups, num_channels, options)
+  options = options or {}
+  if type(num_groups) ~= "number" or num_groups < 1 or num_groups % 1 ~= 0 then
+    error("GroupNorm: num_groups must be a positive integer", 3)
+  end
+  if type(num_channels) ~= "number" or num_channels < 1 or
+     num_channels % 1 ~= 0 then
+    error("GroupNorm: num_channels must be a positive integer", 3)
+  end
+  if num_channels % num_groups ~= 0 then
+    error("GroupNorm: num_channels must be divisible by num_groups", 3)
+  end
+  local self = setmetatable(Module.new(), GroupNorm)
+  self.num_groups = num_groups
+  self.num_channels = num_channels
+  self.eps = options.eps or 1e-5
+  self.affine = options.affine ~= false
+  if self.affine then
+    self:register_parameter("weight", torch.ones(num_channels))
+    self:register_parameter("bias", torch.zeros(num_channels))
+  end
+  self:_refresh_aliases()
+  return self
+end
+
+function GroupNorm:_refresh_aliases()
+  self.weight = self._parameters.weight
+  self.bias = self._parameters.bias
+end
+
+function GroupNorm:forward(input)
+  local shape = input:sizes()
+  if #shape ~= 4 then
+    error("GroupNorm expects an NCHW tensor", 2)
+  end
+  local batch, channels, height, width = shape[1], shape[2], shape[3], shape[4]
+  if channels ~= self.num_channels then
+    error(string.format("GroupNorm: expected %d channels, got %d",
+      self.num_channels, channels), 2)
+  end
+  local per_group = math.floor(channels / self.num_groups)
+  local group_size = per_group * height * width
+  local grouped = input:contiguous():view(batch, self.num_groups, group_size)
+  local mean = grouped:mean(3, true)
+  local second = grouped:pow(2):mean(3, true)
+  local variance = second:sub(mean:pow(2)):clamp(0, math.huge)
+  local normalized = grouped:sub(mean):div(variance:add(self.eps):sqrt())
+  normalized = normalized:view(batch, channels, height, width)
+  if self.weight then
+    normalized = normalized:mul(self.weight:reshape(1, channels, 1, 1))
+  end
+  if self.bias then
+    normalized = normalized:add(self.bias:reshape(1, channels, 1, 1))
+  end
+  return normalized
+end
+
+function GroupNorm:format()
+  return string.format("GroupNorm(%d, %d, eps=%g, affine=%s)",
+    self.num_groups, self.num_channels, self.eps, tostring(self.affine))
+end
+
 local LayerNorm = Module.class("LayerNorm")
 
 function LayerNorm.new(normalized_shape, options)
@@ -138,5 +202,6 @@ end
 
 return {
   BatchNorm2d = BatchNorm2d,
+  GroupNorm = GroupNorm,
   LayerNorm = LayerNorm,
 }

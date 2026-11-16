@@ -37,7 +37,8 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
   shuffling, `drop_last`
 - [x] On-disk module serialization (`nn.save` / `model:load`, luatorch format)
 - [ ] PyTorch state-dict interop
-- [ ] More layers: ConvTranspose2d, GroupNorm, RNN/LSTM
+- [x] GroupNorm
+- [ ] More layers: ConvTranspose2d, RNN/LSTM
 - [ ] Loss options: class weights, `ignore_index`, label smoothing
 - [x] AMSGrad optimizer mode (fused)
 - [ ] Per-parameter optimizer groups

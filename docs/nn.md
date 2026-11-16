@@ -86,6 +86,7 @@ references.
 | `nn.AdaptiveAvgPool2d(1)` | global average pooling |
 | `nn.BatchNorm2d(features, opts?)` | `eps`, `momentum`, `affine`, `track_running_stats` |
 | `nn.LayerNorm(normalized_shape, opts?)` | `eps`, `elementwise_affine`; normalizes trailing dims |
+| `nn.GroupNorm(num_groups, channels, opts?)` | `eps`, `affine`; normalizes channel groups in NCHW |
 | `nn.Embedding(num_embeddings, dim)` | 1-based index lookup; `padding_idx` not supported yet |
 | `nn.Dropout(p?, inplace?)` | inverted dropout |
 | `nn.Dropout2d(p?, inplace?)` | elementwise dropout with a 2-D name |
@@ -336,8 +337,7 @@ local accuracy = model(test_inputs):argmax(2):eq(test_targets)
   dataset objects.
 - `nn.save`/`nn.load` use a luatorch-specific format; PyTorch state-dict
   interop is on the roadmap.
-- `ConvTranspose2d`, GroupNorm, RNN/LSTM and weight-norm layers are not
-  implemented.
+- `ConvTranspose2d`, RNN/LSTM and weight-norm layers are not implemented.
 - `Embedding` does not support `padding_idx` yet.
 - Cross entropy supports plain class targets and `mean`/`sum`/`none`; class
   weights, `ignore_index` and label smoothing are rejected explicitly.
