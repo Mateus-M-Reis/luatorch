@@ -17,6 +17,7 @@ local torch = require("torch")
 local Module = require("torch.nn.module")
 local functional = require("torch.nn.functional")
 local serialization = require("torch.nn.serialization")
+local safetensors = require("torch.nn.safetensors")
 
 local nn = {
   Module = Module,
@@ -31,6 +32,7 @@ local groups = {
   require("torch.nn.normalization"),
   require("torch.nn.embedding"),
   require("torch.nn.dropout"),
+  require("torch.nn.rnn"),
 }
 
 for _, group in ipairs(groups) do
@@ -46,6 +48,7 @@ end
 
 nn.save = serialization.save
 nn.load = serialization.load
+nn.safetensors = safetensors
 
 nn.init = {
   uniform_ = function(tensor, low, high)

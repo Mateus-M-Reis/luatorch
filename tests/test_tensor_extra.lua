@@ -115,3 +115,30 @@ test("module-level sorting helpers", function()
 
   assert_tensor(torch.nonzero(torch.tensor({ 0, 1 })), { { 2 } })
 end)
+
+test("batched index_select matches individual calls", function()
+  local input = torch.arange(12):reshape(3, 4)
+  local first = torch.LongTensor({ 1, 3 })
+  local second = torch.LongTensor({ 2 })
+  local results = input:index_select_batch(1, { first, second })
+  assert_eq(#results, 2)
+  assert_tensor(results[1], input:index_select(1, first):totable())
+  assert_tensor(results[2], input:index_select(1, second):totable())
+  assert_error(function() input:index_select_batch(1, {}) end,
+    "empty")
+  assert_error(function() input:index_select_batch(1, { 1 }) end,
+    "not a Tensor")
+end)
+
+test("softmax and log_softmax normalize arbitrary dimensions", function()
+  torch.manual_seed(64)
+  local input = torch.randn(2, 3, 4)
+  local soft = input:softmax(1)
+  local sums = soft:sum(1)
+  for i = 1, sums:numel() do
+    assert_near(sums:reshape(-1):get(i), 1, 1e-5)
+  end
+  local logits = input:log_softmax(1)
+  local expected = input - input:logsumexp(1, true)
+  assert_near((logits - expected):abs():max():item(), 0, 1e-5)
+end)

@@ -38,37 +38,54 @@ function SGD.new(params, options)
 end
 
 function SGD:step()
-  for _, parameter in ipairs(self.params) do
-    local gradient = parameter:grad()
-    if gradient then
-      if not gradient:is_contiguous() then
-        gradient = gradient:contiguous()
+  for _, group in ipairs(self.param_groups) do
+    local lr = group.lr or self.lr
+    local momentum = group.momentum or self.momentum
+    local dampening = group.dampening or self.dampening
+    local weight_decay = group.weight_decay or self.weight_decay
+    local nesterov = group.nesterov
+    if nesterov == nil then nesterov = self.nesterov end
+    if nesterov then
+      if momentum <= 0 then
+        error("SGD: nesterov momentum requires momentum > 0", 3)
       end
-
-      local buffer = nil
-      local first_step = 0
-      if self.momentum ~= 0 then
-        local state = self:state_for(parameter)
-        if state.momentum_buffer == nil then
-          state.momentum_buffer = torch.zeros_like(parameter)
-          state.first_step = true
-        end
-        buffer = state.momentum_buffer
-        if state.first_step then
-          first_step = 1
-          state.first_step = false
-        end
+      if dampening ~= 0 then
+        error("SGD: nesterov momentum requires dampening == 0", 3)
       end
+    end
+    for _, parameter in ipairs(group.params) do
+      local gradient = parameter:grad()
+      if gradient then
+        if not gradient:is_contiguous() then
+          gradient = gradient:contiguous()
+        end
 
-      local status = lib.lt_sgd_step(
-        parameter.h, gradient.h, buffer and buffer.h or nil,
-        self.lr, self.momentum, self.dampening,
-        self.weight_decay, self.nesterov and 1 or 0, first_step)
-      if status ~= 0 then
-        error(ffi.string(lib.lt_last_error()), 3)
+        local buffer = nil
+        local first_step = 0
+        if momentum ~= 0 then
+          local state = self:state_for(parameter)
+          if state.momentum_buffer == nil then
+            state.momentum_buffer = torch.zeros_like(parameter)
+            state.first_step = true
+          end
+          buffer = state.momentum_buffer
+          if state.first_step then
+            first_step = 1
+            state.first_step = false
+          end
+        end
+
+        local status = lib.lt_sgd_step(
+          parameter.h, gradient.h, buffer and buffer.h or nil,
+          lr, momentum, dampening, weight_decay, nesterov and 1 or 0,
+          first_step)
+        if status ~= 0 then
+          error(ffi.string(lib.lt_last_error()), 3)
+        end
       end
     end
   end
+  self:sync_lr()
   return self
 end
 

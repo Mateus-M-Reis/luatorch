@@ -31,37 +31,46 @@ function RMSprop.new(params, options)
 end
 
 function RMSprop:step()
-  for _, parameter in ipairs(self.params) do
-    local gradient = parameter:grad()
-    if gradient then
-      local state = self:state_for(parameter)
-      if state.square_avg == nil then
-        state.square_avg = torch.zeros_like(parameter)
-        state.step = 0
-        if self.momentum > 0 then
-          state.momentum_buffer = torch.zeros_like(parameter)
+  for _, group in ipairs(self.param_groups) do
+    local lr = group.lr or self.lr
+    local alpha = group.alpha or self.alpha
+    local eps = group.eps or self.eps
+    local weight_decay = group.weight_decay or self.weight_decay
+    local momentum = group.momentum or self.momentum
+    local centered = group.centered
+    if centered == nil then centered = self.centered end
+    for _, parameter in ipairs(group.params) do
+      local gradient = parameter:grad()
+      if gradient then
+        local state = self:state_for(parameter)
+        if state.square_avg == nil then
+          state.square_avg = torch.zeros_like(parameter)
+          state.step = 0
+          if momentum > 0 then
+            state.momentum_buffer = torch.zeros_like(parameter)
+          end
+          if centered then
+            state.grad_avg = torch.zeros_like(parameter)
+          end
         end
-        if self.centered then
-          state.grad_avg = torch.zeros_like(parameter)
+        state.step = state.step + 1
+
+        if not gradient:is_contiguous() then
+          gradient = gradient:contiguous()
         end
-      end
-      state.step = state.step + 1
 
-      if not gradient:is_contiguous() then
-        gradient = gradient:contiguous()
-      end
-
-      local status = lib.lt_rmsprop_step(
-        parameter.h, gradient.h, state.square_avg.h,
-        state.grad_avg and state.grad_avg.h or nil,
-        state.momentum_buffer and state.momentum_buffer.h or nil,
-        self.lr, self.alpha, self.eps, self.weight_decay,
-        self.momentum, self.centered and 1 or 0)
-      if status ~= 0 then
-        error(ffi.string(lib.lt_last_error()), 3)
+        local status = lib.lt_rmsprop_step(
+          parameter.h, gradient.h, state.square_avg.h,
+          state.grad_avg and state.grad_avg.h or nil,
+          state.momentum_buffer and state.momentum_buffer.h or nil,
+          lr, alpha, eps, weight_decay, momentum, centered and 1 or 0)
+        if status ~= 0 then
+          error(ffi.string(lib.lt_last_error()), 3)
+        end
       end
     end
   end
+  self:sync_lr()
   return self
 end
 

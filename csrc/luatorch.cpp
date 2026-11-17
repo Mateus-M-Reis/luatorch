@@ -2596,6 +2596,37 @@ lt_tensor* lt_index_select(lt_tensor* a, int64_t dim, lt_tensor* indices) {
   LT_CATCH_NULL
 }
 
+int lt_index_select_batch(lt_tensor* a, int64_t dim,
+                          lt_tensor* const* indices, int64_t count,
+                          lt_tensor** outputs) {
+  try {
+    clear_error();
+    if (indices == nullptr || outputs == nullptr) {
+      throw std::runtime_error("index_select_batch: null array");
+    }
+    if (count < 0) {
+      throw std::runtime_error("index_select_batch: negative count");
+    }
+    int64_t d = resolve_dim(dim, a->t.dim(), "index_select_batch");
+    std::vector<at::Tensor> results;
+    results.reserve(static_cast<size_t>(count));
+    for (int64_t i = 0; i < count; ++i) {
+      if (indices[i] == nullptr) {
+        throw std::runtime_error("index_select_batch: null index tensor");
+      }
+      if (indices[i]->t.scalar_type() != at::kLong) {
+        throw std::runtime_error("index_select_batch: indices must be int64");
+      }
+      results.push_back(a->t.index_select(d, indices[i]->t));
+    }
+    for (int64_t i = 0; i < count; ++i) {
+      outputs[i] = wrap(std::move(results[static_cast<size_t>(i)]));
+    }
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
 lt_tensor* lt_nonzero(lt_tensor* a) {
   try {
     clear_error();

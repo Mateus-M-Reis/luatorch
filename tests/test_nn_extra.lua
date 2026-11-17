@@ -279,3 +279,128 @@ test("softmax falls back for non-last dimensions", function()
   local expected = torch.Tensor._wrap(lib.lt_softmax(input.h, 0))
   assert_true(output:allclose(expected, 1e-5, 1e-6))
 end)
+
+test("CrossEntropyLoss supports class weights and ignore_index", function()
+  local logits = torch.tensor({
+    { 4, 1, 0 }, { 1, 4, 0 }, { 4, 1, 0 }, { 1, 4, 0 },
+  })
+  local target = torch.LongTensor({ 1, 2, 1, 2 })
+  local plain = nn.CrossEntropyLoss({ reduction = "none" })(logits, target)
+  local weighted = nn.CrossEntropyLoss({
+    reduction = "none", weight = torch.tensor({ 1, 3, 1 }),
+  })(logits, target)
+  assert_near(weighted:get(1), plain:get(1) * 1, 1e-6)
+  assert_near(weighted:get(2), plain:get(2) * 3, 1e-6)
+
+  local ignored = nn.CrossEntropyLoss({
+    reduction = "none", ignore_index = 2,
+  })(logits, target)
+  assert_eq(ignored:get(2), 0)
+  assert_true(ignored:get(1) > 0)
+end)
+
+test("CrossEntropyLoss label smoothing changes the loss", function()
+  local logits = torch.tensor({ { 4, 1, 0 }, { 1, 4, 0 } })
+  local target = torch.LongTensor({ 1, 2 })
+  local plain = nn.CrossEntropyLoss()(logits, target):item()
+  local smooth = nn.CrossEntropyLoss({ label_smoothing = 0.2 })(logits, target):item()
+  assert_true(smooth ~= plain)
+  assert_true(smooth > plain)
+end)
+
+test("NLLLoss supports class weights", function()
+  local log_probs = torch.tensor({ { -0.1, -2.0 }, { -2.0, -0.1 } })
+  local target = torch.LongTensor({ 1, 2 })
+  local loss = nn.NLLLoss({ weight = torch.tensor({ 1, 2 }) })(log_probs, target)
+  assert_true(loss:item() > 0)
+end)
+
+test("safetensors round-trips a module state dict", function()
+  torch.manual_seed(61)
+  local model = nn.Sequential(nn.Linear(3, 4), nn.Tanh(), nn.Linear(4, 2))
+  local path = "/tmp/luatorch-state.safetensors"
+  model:save_safetensors(path)
+  local restored = nn.Sequential(nn.Linear(3, 4), nn.Tanh(), nn.Linear(4, 2))
+  restored:load_safetensors(path)
+  local input = torch.tensor({ { 1, 2, 3 }, { -1, 0, 2 } })
+  local expected = model(input):totable()
+  local actual = restored(input):totable()
+  for i = 1, 2 do
+    for j = 1, 2 do
+      assert_near(actual[i][j], expected[i][j], 1e-6)
+    end
+  end
+  os.remove(path)
+end)
+
+test("safetensors supports prefix stripping", function()
+  local weight = torch.tensor({ { 1, 2 }, { 3, 4 } })
+  local bias = torch.tensor({ 0.5, -0.5 })
+  local source = {
+    state_dict = function()
+      return { ["model.weight"] = weight, ["model.bias"] = bias }
+    end,
+  }
+  local path = "/tmp/luatorch-prefix.safetensors"
+  nn.safetensors.save(source, path)
+  local target = nn.Linear(2, 2)
+  target:load_safetensors(path, { strip_prefix = "model." })
+  assert_near(target.bias:get(1), 0.5, 1e-6)
+  assert_near(target.weight:get(2, 2), 4, 1e-6)
+  os.remove(path)
+end)
+
+test("RNN forward and backward preserve sequence shapes", function()
+  torch.manual_seed(62)
+  local model = nn.RNN(3, 5, { batch_first = true })
+  local input = torch.randn(2, 4, 3, { requires_grad = true })
+  local output, hidden = model(input)
+  assert_eq(#output:sizes(), 3)
+  assert_eq(output:size(1), 2)
+  assert_eq(output:size(2), 4)
+  assert_eq(output:size(3), 5)
+  assert_eq(#hidden:sizes(), 3)
+  output:sum():backward()
+  assert_true(input:grad() ~= nil)
+  assert_true(model.weight_ih_l0:grad() ~= nil)
+end)
+
+test("RNN accepts a 2-D unbatched sequence", function()
+  local model = nn.RNN(2, 4)
+  local output, hidden = model(torch.randn(5, 2))
+  assert_eq(#output:sizes(), 2)
+  assert_eq(output:size(1), 5)
+  assert_eq(output:size(2), 4)
+  assert_eq(hidden:size(1), 1)
+  assert_eq(hidden:size(2), 4)
+end)
+
+test("LSTM returns output, hidden, and cell states", function()
+  torch.manual_seed(63)
+  local model = nn.LSTM(3, 4)
+  local input = torch.randn(5, 2, 3, { requires_grad = true })
+  local output, hidden, cell = model(input)
+  assert_eq(output:size(1), 5)
+  assert_eq(output:size(2), 2)
+  assert_eq(output:size(3), 4)
+  assert_eq(hidden:size(1), 1)
+  assert_eq(cell:size(1), 1)
+  output:sum():backward()
+  assert_true(input:grad() ~= nil)
+  assert_true(model.weight_ih_l0:grad() ~= nil)
+end)
+
+test("LSTM batch_first matches sequence-first layout", function()
+  local sequence_first = nn.LSTM(2, 3)
+  local batch_first = nn.LSTM(2, 3, { batch_first = true })
+  torch.no_grad(function()
+    batch_first.weight_ih_l0:copy_(sequence_first.weight_ih_l0)
+    batch_first.weight_hh_l0:copy_(sequence_first.weight_hh_l0)
+    batch_first.bias_ih_l0:copy_(sequence_first.bias_ih_l0)
+    batch_first.bias_hh_l0:copy_(sequence_first.bias_hh_l0)
+  end)
+  local input = torch.randn(2, 4, 2)
+  local expected = sequence_first(input:transpose(1, 2))
+  local actual = batch_first(input)
+  assert_near(actual:sum():item(), expected:sum():item(), 1e-5)
+end)

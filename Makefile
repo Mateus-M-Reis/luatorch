@@ -1,4 +1,4 @@
-.PHONY: all build test bench compare clean repl
+.PHONY: all build test bench compare clean repl install
 
 all: build
 

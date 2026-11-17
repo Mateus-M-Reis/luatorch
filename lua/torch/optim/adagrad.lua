@@ -30,29 +30,37 @@ function Adagrad.new(params, options)
 end
 
 function Adagrad:step()
-  for _, parameter in ipairs(self.params) do
-    local gradient = parameter:grad()
-    if gradient then
-      local state = self:state_for(parameter)
-      if state.sum == nil then
-        state.sum = torch.full_like(parameter, self.initial_accumulator_value)
-        state.step = 0
-      end
-      state.step = state.step + 1
+  for _, group in ipairs(self.param_groups) do
+    local lr = group.lr or self.lr
+    local lr_decay = group.lr_decay or self.lr_decay
+    local weight_decay = group.weight_decay or self.weight_decay
+    local eps = group.eps or self.eps
+    local initial = group.initial_accumulator_value
+    if initial == nil then initial = self.initial_accumulator_value end
+    for _, parameter in ipairs(group.params) do
+      local gradient = parameter:grad()
+      if gradient then
+        local state = self:state_for(parameter)
+        if state.sum == nil then
+          state.sum = torch.full_like(parameter, initial)
+          state.step = 0
+        end
+        state.step = state.step + 1
 
-      if not gradient:is_contiguous() then
-        gradient = gradient:contiguous()
-      end
+        if not gradient:is_contiguous() then
+          gradient = gradient:contiguous()
+        end
 
-      local status = lib.lt_adagrad_step(
-        parameter.h, gradient.h, state.sum.h,
-        self.lr, self.lr_decay, self.weight_decay,
-        self.eps, state.step)
-      if status ~= 0 then
-        error(ffi.string(lib.lt_last_error()), 3)
+        local status = lib.lt_adagrad_step(
+          parameter.h, gradient.h, state.sum.h,
+          lr, lr_decay, weight_decay, eps, state.step)
+        if status ~= 0 then
+          error(ffi.string(lib.lt_last_error()), 3)
+        end
       end
     end
   end
+  self:sync_lr()
   return self
 end
 

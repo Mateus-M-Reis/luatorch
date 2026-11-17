@@ -126,3 +126,48 @@ test("XOR training end to end", function()
   local predictions = model(input):argmax(2):reshape(4)
   assert_tensor(predictions, { 1, 2, 2, 1 })
 end)
+
+test("parameter groups use independent learning rates", function()
+  local first = torch.tensor({ 1, 1 }, { requires_grad = true })
+  local second = torch.tensor({ 1, 1 }, { requires_grad = true })
+  local optimizer = optim.SGD({
+    { params = { first }, lr = 0.1 },
+    { params = { second }, lr = 0.01 },
+  }, { lr = 0.5 })
+  assert_eq(#optimizer.param_groups, 2)
+  assert_eq(#optimizer.params, 2)
+  first:sum():backward()
+  second:sum():backward()
+  optimizer:step()
+  assert_near(first:get(1), 0.9, 1e-6, "first group update")
+  assert_near(second:get(1), 0.99, 1e-6, "second group update")
+  assert_near(optimizer.lr, 0.1, 1e-6, "root lr follows first group")
+end)
+
+test("add_param_group appends a group and is trainable", function()
+  local first = torch.tensor({ 2 }, { requires_grad = true })
+  local second = torch.tensor({ 2 }, { requires_grad = true })
+  local optimizer = optim.SGD({ first }, { lr = 0.1 })
+  optimizer:add_param_group({ params = { second }, lr = 0.01 })
+  assert_eq(#optimizer.param_groups, 2)
+  assert_eq(#optimizer.params, 2)
+  first:sum():backward()
+  second:sum():backward()
+  optimizer:step()
+  assert_near(first:get(1), 1.9, 1e-6)
+  assert_near(second:get(1), 1.99, 1e-6)
+end)
+
+test("learning-rate schedulers update every parameter group", function()
+  local first = torch.tensor({ 1 }, { requires_grad = true })
+  local second = torch.tensor({ 1 }, { requires_grad = true })
+  local optimizer = optim.SGD({
+    { params = { first }, lr = 0.2 },
+    { params = { second }, lr = 0.02 },
+  }, { lr = 0.2 })
+  local scheduler = optim.lr_scheduler.StepLR(optimizer, 1, 0.5)
+  scheduler:step()
+  assert_near(optimizer.param_groups[1].lr, 0.1, 1e-6)
+  assert_near(optimizer.param_groups[2].lr, 0.01, 1e-6)
+  assert_near(optimizer.lr, 0.1, 1e-6)
+end)

@@ -79,16 +79,20 @@ function CrossEntropyLoss.new(options)
     options = { reduction = options }
   end
   options = options or {}
-  if options.weight ~= nil or options.ignore_index ~= nil or
-    options.label_smoothing ~= nil then
-    error("CrossEntropyLoss: weight/ignore_index/label_smoothing are not supported yet", 3)
-  end
   self.reduction = F.normalize_reduction(options.reduction)
+  self.weight = options.weight
+  self.ignore_index = options.ignore_index
+  self.label_smoothing = options.label_smoothing
   return self
 end
 
 function CrossEntropyLoss:forward(input, target)
-  return F.cross_entropy(input, target, self.reduction)
+  return F.cross_entropy(input, target, {
+    reduction = self.reduction,
+    weight = self.weight,
+    ignore_index = self.ignore_index,
+    label_smoothing = self.label_smoothing,
+  })
 end
 
 local NLLLoss = class("NLLLoss")
@@ -99,15 +103,18 @@ function NLLLoss.new(options)
     options = { reduction = options }
   end
   options = options or {}
-  if options.weight ~= nil or options.ignore_index ~= nil then
-    error("NLLLoss: weight/ignore_index are not supported yet", 3)
-  end
   self.reduction = F.normalize_reduction(options.reduction)
+  self.weight = options.weight
+  self.ignore_index = options.ignore_index
   return self
 end
 
 function NLLLoss:forward(input, target)
-  return F.nll_loss(input, target, self.reduction)
+  return F.nll_loss(input, target, {
+    reduction = self.reduction,
+    weight = self.weight,
+    ignore_index = self.ignore_index,
+  })
 end
 
 local BCEWithLogitsLoss = class("BCEWithLogitsLoss")

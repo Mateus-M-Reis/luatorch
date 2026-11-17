@@ -154,17 +154,23 @@ end
 | --- | --- |
 | `nn.MSELoss(reduction?)` | mean over all elements by default |
 | `nn.L1Loss(reduction?)` | |
-| `nn.CrossEntropyLoss(reduction?)` | log-softmax + NLL; targets are **1-based** |
-| `nn.NLLLoss(reduction?)` | input is already log-probabilities; 1-based targets |
+| `nn.CrossEntropyLoss(options?)` | log-softmax + NLL; targets are **1-based**; supports `weight`, `ignore_index`, `label_smoothing` |
+| `nn.NLLLoss(options?)` | input is already log-probabilities; supports `weight`, `ignore_index` |
 | `nn.BCEWithLogitsLoss(reduction?)` | numerically stable binary cross entropy |
 | `nn.BCELoss(reduction?)` | probabilities, clamped to avoid logs of zero |
 
-`reduction` is `"mean"` (default), `"sum"` or `"none"`.
+`reduction` is `"mean"` (default), `"sum"` or `"none"`. The classification
+losses accept `weight` (one value per class), `ignore_index` (a 1-based label to
+skip), and `CrossEntropyLoss` also accepts `label_smoothing` in `[0, 1]`.
+The weighted/ignore/smoothing path is implemented in Lua on 2-D logits and
+log-probabilities; the default path keeps the fused C kernel.
 
-`nn.Softmax` and `nn.LogSoftmax` over the last dimension use fused
-fast-math kernels (float32/float64); other dimensions fall back to ATen. `CrossEntropyLoss` on 2D
-float32/64 logits with mean/sum reduction uses a fused fast-math path when the
-class count is at most 4096; larger classifiers fall back to ATen.
+`nn.Softmax` and `nn.LogSoftmax` use fused fast-math kernels (float32/float64)
+for any dimension by moving that dimension last, making the layout contiguous,
+and moving the result back. The default last-dimension path avoids the copies.
+`CrossEntropyLoss` on 2D float32/64 logits with mean/sum reduction uses a fused
+fast-math path when the class count is at most 4096; larger classifiers fall
+back to ATen.
 
 `MSELoss` and `L1Loss` use the fused one-pass reductions when input and target
 have the same shape and float32/float64 dtype (and reduction is not `"none"`).
@@ -209,10 +215,44 @@ F.binary_cross_entropy(x, target, reduction)   -- probabilities
 F.dropout(x, p, training, inplace)
 ```
 
+## Recurrent layers
+
+Single-layer, unidirectional RNN and LSTM layers are available:
+
+```lua
+local rnn = nn.RNN(16, 32, { batch_first = true, nonlinearity = "tanh" })
+local lstm = nn.LSTM(16, 32, { batch_first = true })
+
+local output, hidden = rnn(input)
+local output2, hidden2, cell2 = lstm(input)
+```
+
+- Input is `[seq, batch, input]` by default or `[batch, seq, input]` with
+  `batch_first = true`; a 2-D input is treated as one unbatched sequence.
+- Hidden/cell states are optional; pass `[1, batch, hidden]` tensors (or
+  `[batch, hidden]`) to continue a sequence.
+- Parameters use PyTorch names (`weight_ih_l0`, `weight_hh_l0`,
+  `bias_ih_l0`, `bias_hh_l0`), so safetensors state dictionaries map directly.
+- Multi-layer, bidirectional, and dropout recurrence are not implemented yet.
+
 ## Optimizers
 
 All optimizers take `(parameters, options)` and expose `step()` and
 `zero_grad()`. Updates run under `torch.no_grad`.
+
+Parameters can also be supplied as PyTorch-style groups:
+
+```lua
+local optimizer = optim.Adam({
+  { params = encoder:parameters(), lr = 1e-4 },
+  { params = head:parameters(), lr = 1e-3, weight_decay = 0.01 },
+}, { lr = 1e-3 })
+
+optimizer:add_param_group({ params = extra:parameters(), lr = 5e-4 })
+```
+
+Each group carries its own `lr` and optimizer options; `optimizer.lr` mirrors
+the first group. Learning-rate schedulers update every group independently.
 
 | Optimizer | Options |
 | --- | --- |
@@ -271,7 +311,7 @@ local scheduler6 = optim.lr_scheduler.ReduceLROnPlateau(optimizer, {
 })
 ```
 
-Schedulers mutate `optimizer.lr`; they do not own parameter state.
+Schedulers update every parameter group; they do not own parameter state.
 `ReduceLROnPlateau:step(metric)` takes the validation metric and reduces the
 rate after `patience` non-improving epochs, with optional cooldown and `min_lr`
 clamping.
@@ -298,9 +338,22 @@ nn.load(model, "classifier.luatorch")
 The file contains the state dictionary (parameters plus buffers) in a compact
 luatorch-specific format: a small text header per tensor followed by contiguous
 bytes. Loading requires the same architecture; values are copied with
-`load_state_dict`, so dtypes are cast when needed. This format is **not** the
-PyTorch zip format — `Tensor:save`/`torch.load` still handles individual tensors
-in that format, and state-dict interop with PyTorch is on the roadmap.
+`load_state_dict`, so dtypes are cast when needed.
+
+For interchange with the PyTorch ecosystem, use the safetensors format:
+
+```lua
+model:save_safetensors("classifier.safetensors")
+model:load_safetensors("classifier.safetensors")
+model:load_safetensors("classifier.safetensors",
+  { strip_prefix = "model.", strict = true })
+```
+
+State-dict keys are the module parameter/buffer names. A PyTorch model can be
+written with `safetensors.torch.save_file(model.state_dict(), path)` and loaded
+here directly; the reverse works with `safetensors.torch.load_file`. Optional
+`prefix`/`strip_prefix` handle wrapper names such as `model.`. Float16 tensors
+are written but cannot currently be loaded (`from_blob` limitation).
 
 ## Training recipe
 
@@ -336,10 +389,10 @@ local accuracy = model(test_inputs):argmax(2):eq(test_targets)
 
 - No built-in datasets; `DataLoader` works on in-memory tensors and custom
   dataset objects.
-- `nn.save`/`nn.load` use a luatorch-specific format; PyTorch state-dict
-  interop is on the roadmap.
-- RNN/LSTM and weight-norm layers are not implemented.
+- `nn.save`/`nn.load` use a luatorch-specific format; safetensors provides
+  PyTorch state-dict interchange.
+- RNN/LSTM are single-layer and unidirectional; weight-norm layers are not
+  implemented.
 - `Embedding` does not support `padding_idx` yet.
-- Cross entropy supports plain class targets and `mean`/`sum`/`none`; class
-  weights, `ignore_index` and label smoothing are rejected explicitly.
+- Weighted/ignore-index classification losses currently require 2-D logits.
 - Modules are CPU-only until the CUDA libtorch build lands.

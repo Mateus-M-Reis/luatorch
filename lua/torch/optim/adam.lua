@@ -33,43 +33,54 @@ function Adam.new(params, options)
 end
 
 function Adam:step()
-  for _, parameter in ipairs(self.params) do
-    local gradient = parameter:grad()
-    if gradient then
-      local state = self:state_for(parameter)
-      if state.step == nil then
-        state.step = 0
-        state.exp_avg = torch.zeros_like(parameter)
-        state.exp_avg_sq = torch.zeros_like(parameter)
-        if self.amsgrad then
-          state.max_exp_avg_sq = torch.zeros_like(parameter)
+  for _, group in ipairs(self.param_groups) do
+    local lr = group.lr or self.lr
+    local betas = group.betas or { self.beta1, self.beta2 }
+    local beta1 = betas[1] or self.beta1
+    local beta2 = betas[2] or self.beta2
+    local eps = group.eps or self.eps
+    local weight_decay = group.weight_decay or self.weight_decay
+    local amsgrad = group.amsgrad
+    if amsgrad == nil then amsgrad = self.amsgrad end
+    local decoupled = group.decoupled_weight_decay
+    if decoupled == nil then decoupled = self.decoupled_weight_decay end
+    for _, parameter in ipairs(group.params) do
+      local gradient = parameter:grad()
+      if gradient then
+        local state = self:state_for(parameter)
+        if state.step == nil then
+          state.step = 0
+          state.exp_avg = torch.zeros_like(parameter)
+          state.exp_avg_sq = torch.zeros_like(parameter)
+          if amsgrad then
+            state.max_exp_avg_sq = torch.zeros_like(parameter)
+          end
         end
-      end
-      state.step = state.step + 1
+        state.step = state.step + 1
 
-      if not gradient:is_contiguous() then
-        gradient = gradient:contiguous()
-      end
+        if not gradient:is_contiguous() then
+          gradient = gradient:contiguous()
+        end
 
-      local status
-      if self.amsgrad then
-        status = lib.lt_adam_amsgrad_step(
-          parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
-          state.max_exp_avg_sq.h, self.lr, self.beta1, self.beta2, self.eps,
-          self.weight_decay, state.step,
-          self.decoupled_weight_decay and 1 or 0)
-      else
-        status = lib.lt_adam_step(
-          parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
-          self.lr, self.beta1, self.beta2, self.eps,
-          self.weight_decay, state.step,
-          self.decoupled_weight_decay and 1 or 0)
-      end
-      if status ~= 0 then
-        error(ffi.string(lib.lt_last_error()), 3)
+        local status
+        if amsgrad then
+          status = lib.lt_adam_amsgrad_step(
+            parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
+            state.max_exp_avg_sq.h, lr, beta1, beta2, eps,
+            weight_decay, state.step, decoupled and 1 or 0)
+        else
+          status = lib.lt_adam_step(
+            parameter.h, gradient.h, state.exp_avg.h, state.exp_avg_sq.h,
+            lr, beta1, beta2, eps, weight_decay, state.step,
+            decoupled and 1 or 0)
+        end
+        if status ~= 0 then
+          error(ffi.string(lib.lt_last_error()), 3)
+        end
       end
     end
   end
+  self:sync_lr()
   return self
 end
 

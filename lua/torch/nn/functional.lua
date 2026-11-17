@@ -124,14 +124,89 @@ function F.l1_loss(input, target, reduction)
   return apply_reduction(absolute, reduction)
 end
 
+local function classification_options(value)
+  if type(value) == "table" then return value end
+  return { reduction = value }
+end
+
+local function classification_loss(input, target, values, options, name)
+  if not torch.is_tensor(input) or not torch.is_tensor(target) then
+    error(name .. " expects input and target tensors", 3)
+  end
+  if input:dim() ~= 2 then
+    error(name .. " with weight/ignore_index/label_smoothing supports 2-D input", 3)
+  end
+  local classes = input:sizes()[2]
+  local count = input:sizes()[1]
+  if target:dim() ~= 1 or target:sizes()[1] ~= count then
+    error(name .. " target must be a 1-D tensor with one label per row", 3)
+  end
+  local labels = target:to(torch.int64)
+  local ignore = options.ignore_index
+  local valid = nil
+  if ignore ~= nil then
+    if type(ignore) ~= "number" then error(name .. " ignore_index must be a number", 3) end
+    valid = labels:ne(ignore)
+  end
+  local log_probs = values
+  local picked = log_probs:gather(2, labels:reshape(count, 1)):reshape(count):neg()
+  local weights = nil
+  if options.weight ~= nil then
+    weights = options.weight
+    if not torch.is_tensor(weights) or weights:dim() ~= 1 or
+        weights:sizes()[1] ~= classes then
+      error(name .. " weight must be a 1-D tensor with one value per class", 3)
+    end
+    weights = weights:index_select(1, labels)
+  end
+  local smoothing = options.label_smoothing or 0
+  if type(smoothing) ~= "number" or smoothing < 0 or smoothing > 1 then
+    error(name .. " label_smoothing must be in [0, 1]", 3)
+  end
+  if smoothing > 0 then
+    local uniform = log_probs:neg():mean(2):reshape(count)
+    picked = picked:mul(1 - smoothing):add(uniform:mul(smoothing))
+  end
+  if weights ~= nil then picked = picked:mul(weights) end
+  if valid ~= nil then picked = picked:masked_fill(valid:logical_not(), 0) end
+  local reduction = normalize_reduction(options.reduction)
+  if reduction == "none" then return picked end
+  if reduction == "sum" then return picked:sum() end
+  if options.weight ~= nil then
+    local denominator = weights
+    if valid ~= nil then denominator = denominator:masked_fill(valid:logical_not(), 0) end
+    local total = denominator:sum()
+    if total:item() == 0 then return picked:sum() end
+    return picked:sum():div(total)
+  end
+  local denominator = count
+  if valid ~= nil then denominator = valid:sum():item() end
+  if denominator == 0 then return picked:sum() end
+  return picked:sum():div(denominator)
+end
+
 function F.cross_entropy(input, target, reduction)
-  reduction = normalize_reduction(reduction)
-  return torch.cross_entropy(input, target, reduction)
+  local options = classification_options(reduction)
+  if options.weight == nil and options.ignore_index == nil and
+      (options.label_smoothing == nil or options.label_smoothing == 0) then
+    return torch.cross_entropy(input, target, options.reduction)
+  end
+  if not torch.is_tensor(input) or input:dim() ~= 2 then
+    error("cross_entropy options require 2-D logits", 3)
+  end
+  return classification_loss(input, target, input:log_softmax(2), options,
+    "cross_entropy")
 end
 
 function F.nll_loss(input, target, reduction)
-  reduction = normalize_reduction(reduction)
-  return torch.nll_loss(input, target, reduction)
+  local options = classification_options(reduction)
+  if options.weight == nil and options.ignore_index == nil then
+    return torch.nll_loss(input, target, options.reduction)
+  end
+  if not torch.is_tensor(input) or input:dim() ~= 2 then
+    error("nll_loss options require 2-D log-probabilities", 3)
+  end
+  return classification_loss(input, target, input, options, "nll_loss")
 end
 
 function F.binary_cross_entropy_with_logits(input, target, reduction)

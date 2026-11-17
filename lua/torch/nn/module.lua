@@ -214,6 +214,16 @@ function Module:load(path)
   return self
 end
 
+function Module:save_safetensors(path, options)
+  require("torch.nn.safetensors").save(self, path, options)
+  return self
+end
+
+function Module:load_safetensors(path, options)
+  require("torch.nn.safetensors").load(self, path, options)
+  return self
+end
+
 function Module:load_state_dict(source, strict)
   if strict == nil then
     strict = true

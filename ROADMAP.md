@@ -36,13 +36,13 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] `torch.utils.data`: Dataset, TensorDataset, DataLoader, deterministic
   shuffling, `drop_last`
 - [x] On-disk module serialization (`nn.save` / `model:load`, luatorch format)
-- [ ] PyTorch state-dict interop
+- [x] PyTorch state-dict interchange through safetensors
 - [x] GroupNorm
 - [x] ConvTranspose2d
-- [ ] More layers: RNN/LSTM
-- [ ] Loss options: class weights, `ignore_index`, label smoothing
+- [x] Single-layer RNN and LSTM (multi-layer/bidirectional still open)
+- [x] Loss options: class weights, `ignore_index`, label smoothing
 - [x] AMSGrad optimizer mode (fused)
-- [ ] Per-parameter optimizer groups
+- [x] Per-parameter optimizer groups
 - [x] `ReduceLROnPlateau` scheduler
 
 ## v0.3 — tensor completeness (partial)
@@ -79,7 +79,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Fused last-dimension `log_softmax` (forward + backward)
 - [x] Fused cross-entropy (2D, mean/sum, class count <= 4096)
 - [x] Fused last-dimension `softmax`
-- [ ] Fused softmax over arbitrary dimensions
+- [x] Fused softmax over arbitrary dimensions via layout move
 - [x] First-order fused forward+backward through a C++ autograd Function
 - [ ] Higher-order gradients through fused expressions
 - [ ] Automatic tracing of ordinary operator code (lazy tensors)
@@ -95,14 +95,14 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] `torch.utils.data`: Dataset/DataLoader with deterministic shuffling
 - [x] `torch.class`-style module system for user-defined layers (`nn.Module.class`)
 - [x] Model serialization to disk (`nn.save` / `model:load`)
-- [ ] PyTorch state-dict interop
-- [ ] `luatorch` rockspec and system installation
+- [x] PyTorch state-dict interchange through safetensors
+- [x] `luatorch` rockspec and system installation
 
 ## v0.6 — performance and ergonomics
 
 - [ ] Zero-copy tensor views where safe; avoid redundant `contiguous()` calls
 - [x] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers
-- [ ] Batched indexing kernels in the shim to cut per-call overhead
+- [x] Batched index-select kernel
 - [x] Fused optimizer updates (one C call per parameter instead of several ops)
 - [x] Profiling helpers (`torch.profiler`, per-method timing/counts)
 - [x] Improved large-tensor printing with edge previews
@@ -113,7 +113,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] Opt-in per-tensor-method profiler with counts, total/average/max time
 - [x] `0.7.0` version and release documentation
 - [x] Direct `from_blob` wrappers for sharing Lua buffers
-- [ ] Batched indexing kernels
+- [x] Batched indexing kernels
 - [x] CI matrix
 
 ## v1.0 — GPU and distribution

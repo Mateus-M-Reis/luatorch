@@ -747,6 +747,30 @@ function Tensor:index_select(dim, indices)
   return wrap(lib.lt_index_select(self.h, self:_cdim(dim), zero_based.h))
 end
 
+function Tensor:index_select_batch(dim, indices_list)
+  if type(indices_list) ~= "table" or #indices_list == 0 then
+    error("index_select_batch expects a non-empty table of index tensors", 3)
+  end
+  local array = ffi.new("lt_tensor*[?]", #indices_list)
+  local converted = {}
+  for index = 1, #indices_list do
+    local indices = indices_list[index]
+    if not is_tensor(indices) then
+      error("index_select_batch entry " .. index .. " is not a Tensor", 3)
+    end
+    converted[index] = indices:to(2):sub(1)
+    array[index - 1] = converted[index].h
+  end
+  local outputs = ffi.new("lt_tensor*[?]", #indices_list)
+  check(lib.lt_index_select_batch(self.h, self:_cdim(dim), array,
+    #indices_list, outputs))
+  local result = {}
+  for index = 1, #indices_list do
+    result[index] = wrap(outputs[index - 1])
+  end
+  return result
+end
+
 -- Coordinates are returned 1-based, ready for indexing_select or get().
 function Tensor:nonzero()
   return wrap(lib.lt_nonzero(self.h)):to(2):add(1)
@@ -1040,32 +1064,37 @@ function Tensor:baddbmm(mat1, mat2, beta, alpha)
     beta == nil and 1 or beta, alpha == nil and 1 or alpha))
 end
 
-function Tensor:softmax(dim)
+local function softmax_any_dim(self, dim, log)
   dim = dim or self:dim()
   local cdim = self:_cdim(dim)
   local sizes = self:sizes()
   local dtype = self:dtype_id()
-  if #sizes >= 1 and cdim == #sizes - 1 and (dtype == 0 or dtype == 1) then
-    local pointer = lib.lt_fused_softmax(self.h)
-    if pointer ~= nil then
-      return wrap(pointer)
-    end
+  local last = #sizes - 1
+  if #sizes >= 1 and cdim == last and (dtype == 0 or dtype == 1) then
+    local pointer = log and lib.lt_fused_log_softmax(self.h) or
+      lib.lt_fused_softmax(self.h)
+    if pointer ~= nil then return wrap(pointer) end
+    return wrap(log and lib.lt_log_softmax(self.h, cdim) or
+      lib.lt_softmax(self.h, cdim))
   end
-  return wrap(lib.lt_softmax(self.h, cdim))
+  if #sizes >= 2 and cdim ~= last and (dtype == 0 or dtype == 1) then
+    -- The fused kernels require the softmax dimension to be contiguous.
+    -- Move it last, run the fused kernel, then move the view back.
+    local moved = self:transpose(cdim + 1, last + 1):contiguous()
+    local result = log and moved:log_softmax(last + 1) or
+      moved:softmax(last + 1)
+    return result:transpose(cdim + 1, last + 1)
+  end
+  return wrap(log and lib.lt_log_softmax(self.h, cdim) or
+    lib.lt_softmax(self.h, cdim))
+end
+
+function Tensor:softmax(dim)
+  return softmax_any_dim(self, dim, false)
 end
 
 function Tensor:log_softmax(dim)
-  dim = dim or self:dim()
-  local cdim = self:_cdim(dim)
-  local sizes = self:sizes()
-  local dtype = self:dtype_id()
-  if #sizes >= 1 and cdim == #sizes - 1 and (dtype == 0 or dtype == 1) then
-    local pointer = lib.lt_fused_log_softmax(self.h)
-    if pointer ~= nil then
-      return wrap(pointer)
-    end
-  end
-  return wrap(lib.lt_log_softmax(self.h, cdim))
+  return softmax_any_dim(self, dim, true)
 end
 
 -- ---------------------------------------------------------------------------

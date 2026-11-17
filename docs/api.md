@@ -1,4 +1,4 @@
-# luatorch API reference (0.7.0)
+# luatorch API reference (0.8.0)
 
 All examples assume:
 
@@ -224,6 +224,7 @@ t:masked_select(mask)
 t:index_select(dim, indices)       -- indices is an integer tensor, 1-based
 t:masked_fill(mask, value)
 t:gather(dim, index)               -- 1-based index tensor
+t:index_select_batch(dim, {i1,i2}) -- one C call for several index tensors
 t:scatter(dim, index, source)      -- out-of-place, 1-based index tensor
 t:nonzero()                        -- 1-based coordinates, shape (N, ndim)
 t:sort(dim?, descending?)          -- values, 1-based indices
@@ -302,7 +303,7 @@ torch.linalg.inv/det/solve/cholesky/svd/qr   -- aliases
 These back `torch.nn`; they are also useful when writing custom layers.
 
 ```lua
-t:softmax(dim?)        t:log_softmax(dim?)     -- dim defaults to the last
+t:softmax(dim?)        t:log_softmax(dim?)     -- any dim; fused via layout move
 t:uniform_(low?, high?)                       -- random in-place init
 t:normal_(mean?, std?)      t:exponential_(lambda?)
 t:bernoulli_(p?)            t:multinomial(n, replacement?)  -- 1-based samples
@@ -314,6 +315,8 @@ torch.avg_pool2d(input, kernel, stride?, padding?, ceil_mode?, count_include_pad
 torch.embedding(weight, indices)                -- 1-based indices
 torch.layer_norm(input, normalized_shape, weight?, bias?, eps?)
 torch.cross_entropy(input, target, reduction?)  -- targets are 1-based
+torch.cross_entropy(input, target, { weight = w, ignore_index = i,
+  label_smoothing = s })                         -- Lua option path
 torch.nll_loss(log_probs, target, reduction?)
 torch.binary_cross_entropy_with_logits(input, target, reduction?)
 torch.uniform_(t, low, high)
@@ -451,6 +454,15 @@ torch.print(t)          -- prints t:format()
 Files use the PyTorch zip archive format (`torch::save` in C++), so tensors can
 be exchanged with C++/Python tooling that understands that format.
 
+Module state dictionaries can be exchanged as safetensors:
+
+```lua
+model:save_safetensors("model.safetensors")
+model:load_safetensors("model.safetensors")
+model:load_safetensors("model.safetensors", { strip_prefix = "model." })
+```
+
+
 ## Module-level aliases
 
 `torch.add`, `sub`, `mul`, `div`, `pow`, `matmul`, `mm`, `bmm`, `dot`, `sum`,
@@ -471,6 +483,6 @@ torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
-torch.VERSION             -- luatorch version string ("0.7.0")
+torch.VERSION             -- luatorch version string ("0.8.0")
 torch.version             -- libtorch version string
 ```

@@ -131,13 +131,14 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.7.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.8.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, and fused `sum`/`mean`/`logsumexp` reductions with
-> backward are implemented, along with fused last-dimension `softmax`,
-> `log_softmax`, and cross-entropy, and covered by **281 tests**. CUDA, higher-order
-> autograd, and more `nn` layers are next
-> (see [ROADMAP.md](ROADMAP.md)).
+> first-order fused backward, fused `sum`/`mean`/`logsumexp` reductions, and
+> covered by **295 tests**. The 0.8 additions are optimizer parameter groups,
+> class-weighted/ignore-index/label-smoothed losses, single-layer RNN and LSTM,
+> safetensors state-dict interchange, batched index-select, arbitrary-dimension
+> fused softmax, and LuaRocks packaging. CUDA and multi-layer recurrence are
+> next (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -203,7 +204,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 261 tests
+scripts/test.sh               # 295 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -215,8 +216,16 @@ If libtorch is already installed: `Torch_DIR=/path/to/libtorch/cmake scripts/bui
 Install:
 
 ```bash
-cmake --install build --prefix "$HOME/.local"
+make install                 # PREFIX=$HOME/.local by default
 export LUA_PATH="$HOME/.local/share/lua/5.1/?.lua;$HOME/.local/share/lua/5.1/?/init.lua;;"
+```
+
+Or install the Lua tree with LuaRocks and point `LUATORCH_LIB` at the native
+shim built above:
+
+```bash
+luarocks --lua-version=5.1 make luatorch-0.8.0-1.rockspec
+export LUATORCH_LIB="$PWD/build/libluatorch.so"
 ```
 
 ### Reproduce the PyTorch comparison
@@ -298,15 +307,20 @@ and fallback rules.
 ## Honest limitations
 
 - Fusion handles elementwise expressions, `sum`/`mean`/`logsumexp`
-  reductions with first-order backward, last-dimension `softmax`/`log_softmax`,
-  and cross-entropy for class counts up to 4096.
+  reductions with first-order backward, `softmax`/`log_softmax` over arbitrary
+  dimensions, and cross-entropy for class counts up to 4096. Arbitrary-dimension
+  softmax moves the axis last and pays for a contiguous copy; the last-dimension
+  path avoids it.
 - `torch.fuse.train` supports **first-order** derivatives and requires the C
   backend; higher-order gradients and the LuaJIT-only fallback use eager
   autograd.
 - Fusion requires equal shapes (broadcasting falls back).
 - We beat eager PyTorch on chains and small ops; we tie on GEMM and slightly
   lose on single out-of-place ops. Those are architectural facts, not bugs.
-- No CUDA, no built-in datasets, no PyTorch state-dict interop yet.
+- No CUDA and no built-in datasets.
+- RNN/LSTM are single-layer and unidirectional.
+- State dictionaries exchange through safetensors; there is no direct loader for
+  PyTorch `.pt` archives.
 
 ## Credits
 

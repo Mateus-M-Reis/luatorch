@@ -7,6 +7,23 @@
 local Scheduler = {}
 Scheduler.__index = Scheduler
 
+local function groups(optimizer)
+  return optimizer.param_groups or
+    { { params = optimizer.params, lr = optimizer.lr } }
+end
+
+local function sync_root(optimizer)
+  local first = groups(optimizer)[1]
+  if first and first.lr ~= nil then optimizer.lr = first.lr end
+end
+
+local function multiply_lrs(optimizer, factor)
+  for _, group in ipairs(groups(optimizer)) do
+    group.lr = (group.lr or optimizer.lr) * factor
+  end
+  sync_root(optimizer)
+end
+
 local function class(name)
   local cls = {}
   cls.__index = cls
@@ -27,10 +44,15 @@ function Scheduler.new(optimizer)
   if optimizer == nil or optimizer.lr == nil then
     error("a scheduler expects an optimizer with a learning rate", 3)
   end
+  local base_lrs = {}
+  for index, group in ipairs(groups(optimizer)) do
+    base_lrs[index] = group.lr or optimizer.lr
+  end
   local self = setmetatable({
     optimizer = optimizer,
     last_epoch = 0,
     base_lr = optimizer.lr,
+    base_lrs = base_lrs,
   }, Scheduler)
   return self
 end
@@ -67,7 +89,7 @@ end
 function StepLR:step()
   Scheduler.step(self)
   if self.last_epoch % self.step_size == 0 then
-    self.optimizer.lr = self.optimizer.lr * self.gamma
+    multiply_lrs(self.optimizer, self.gamma)
   end
   return self
 end
@@ -87,7 +109,7 @@ function MultiStepLR:step()
   Scheduler.step(self)
   for _, milestone in ipairs(self.milestones) do
     if self.last_epoch == milestone then
-      self.optimizer.lr = self.optimizer.lr * self.gamma
+      multiply_lrs(self.optimizer, self.gamma)
       break
     end
   end
@@ -106,7 +128,7 @@ end
 
 function ExponentialLR:step()
   Scheduler.step(self)
-  self.optimizer.lr = self.optimizer.lr * self.gamma
+  multiply_lrs(self.optimizer, self.gamma)
   return self
 end
 
@@ -127,9 +149,12 @@ end
 function CosineAnnealingLR:step()
   Scheduler.step(self)
   local epoch = math.min(self.last_epoch, self.T_max)
-  self.optimizer.lr = self.eta_min +
-    (self.base_lr - self.eta_min) *
-    (1 + math.cos(math.pi * epoch / self.T_max)) / 2
+  for index, group in ipairs(groups(self.optimizer)) do
+    local base = self.base_lrs[index] or self.base_lr
+    group.lr = self.eta_min + (base - self.eta_min) *
+      (1 + math.cos(math.pi * epoch / self.T_max)) / 2
+  end
+  sync_root(self.optimizer)
   return self
 end
 
@@ -194,8 +219,11 @@ function ReduceLROnPlateau:step(metric)
     self.num_bad_epochs = self.num_bad_epochs + 1
   end
   if self.num_bad_epochs > self.patience then
-    local reduced = self.optimizer.lr * self.factor
-    self.optimizer.lr = math.max(self.min_lr, reduced)
+    for _, group in ipairs(groups(self.optimizer)) do
+      group.lr = math.max(self.min_lr, (group.lr or self.optimizer.lr) *
+        self.factor)
+    end
+    sync_root(self.optimizer)
     self.num_bad_epochs = 0
     self.cooldown_counter = self.cooldown
   end
@@ -217,7 +245,11 @@ end
 
 function LambdaLR:step()
   Scheduler.step(self)
-  self.optimizer.lr = self.base_lr * self.lr_lambda(self.last_epoch)
+  local factor = self.lr_lambda(self.last_epoch)
+  for index, group in ipairs(groups(self.optimizer)) do
+    group.lr = (self.base_lrs[index] or self.base_lr) * factor
+  end
+  sync_root(self.optimizer)
   return self
 end
 
