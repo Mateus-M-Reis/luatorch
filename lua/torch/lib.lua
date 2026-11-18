@@ -219,6 +219,10 @@ int lt_index_select_batch(lt_tensor* a, int64_t dim,
                           lt_tensor* const* indices, int64_t count,
                           lt_tensor** outputs);
 lt_tensor* lt_nonzero(lt_tensor* a);
+lt_tensor* lt_take_along_dim(lt_tensor* a, lt_tensor* indices, int64_t dim);
+lt_tensor* lt_index_tensor(lt_tensor* a, lt_tensor* indices);
+int lt_index_put_(lt_tensor* a, lt_tensor* index, lt_tensor* values,
+                  int accumulate);
 lt_tensor* lt_gather(lt_tensor* a, int64_t dim, lt_tensor* index);
 lt_tensor* lt_scatter(lt_tensor* a, int64_t dim, lt_tensor* index, lt_tensor* src);
 int lt_sort(lt_tensor* a, int64_t dim, int descending,

@@ -38,6 +38,7 @@ void lt_softmax_backward_f64(
 
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -2633,6 +2634,48 @@ lt_tensor* lt_nonzero(lt_tensor* a) {
     return wrap(a->t.nonzero());
   }
   LT_CATCH_NULL
+}
+
+lt_tensor* lt_take_along_dim(lt_tensor* a, lt_tensor* indices, int64_t dim) {
+  try {
+    clear_error();
+    if (indices->t.scalar_type() != at::kLong) {
+      throw std::runtime_error("take_along_dim: indices must be int64");
+    }
+    if (dim == LT_ALL_DIMS) {
+      return wrap(at::take_along_dim(a->t, indices->t, std::nullopt));
+    }
+    int64_t d = resolve_dim(dim, a->t.dim(), "take_along_dim");
+    return wrap(at::take_along_dim(a->t, indices->t, d));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_index_tensor(lt_tensor* a, lt_tensor* indices) {
+  try {
+    clear_error();
+    c10::List<std::optional<at::Tensor>> advanced;
+    advanced.push_back(indices->t);
+    return wrap(a->t.index(advanced));
+  }
+  LT_CATCH_NULL
+}
+
+int lt_index_put_(lt_tensor* a, lt_tensor* index, lt_tensor* values,
+                  int accumulate) {
+  try {
+    clear_error();
+    at::ScalarType index_type = index->t.scalar_type();
+    if (index_type != at::kBool && index_type != at::kLong) {
+      throw std::runtime_error(
+          "index_put_: index must be a bool mask or int64 tensor");
+    }
+    c10::List<std::optional<at::Tensor>> indices;
+    indices.push_back(index->t);
+    a->t.index_put_(indices, values->t, accumulate != 0);
+    return 0;
+  }
+  LT_CATCH_INT
 }
 
 lt_tensor* lt_gather(lt_tensor* a, int64_t dim, lt_tensor* index) {

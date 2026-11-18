@@ -548,6 +548,22 @@ function torch.scatter(tensor, dim, index, source)
   return tensor:scatter(dim, index, source)
 end
 
+function torch.index_select(tensor, dim, indices)
+  return tensor:index_select(dim, indices)
+end
+
+function torch.take_along_dim(tensor, indices, dim)
+  return tensor:take_along_dim(indices, dim)
+end
+
+function torch.index_put_(tensor, indices, values, accumulate)
+  return tensor:index_put_(indices, values, accumulate)
+end
+
+function torch.index(tensor, ...)
+  return tensor:index(...)
+end
+
 function torch.unique(tensor, sorted_flag, return_inverse, return_counts)
   return tensor:unique(sorted_flag, return_inverse, return_counts)
 end

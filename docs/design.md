@@ -118,6 +118,14 @@ ATen is 0-based; the Lua API is 1-based. Conversions live exclusively in
 - `gather`/`scatter` accept 1-based index tensors and convert them once at the
   boundary. Index `0` becomes `-1` and fails loudly, which catches off-by-one
   mistakes early.
+- `take_along_dim` uses ATen's broadcast-compatible index handling; `index_put_`
+  accepts either a boolean mask or an integer row index, validates index `0`
+  explicitly, and exposes ATen's optional `accumulate` mode. With accumulation
+  disabled the CPU backend applies duplicate indices in order (last wins); the
+  API docs recommend `accumulate = true` when duplicates are possible.
+- `index(dim, indices)` is the Torch7 name for `index_select`; a single integer
+  tensor argument (and `t[indices]`) selects along dimension 1 with ATen's
+  advanced-indexing kernel. Tensor-key assignment lowers to `index_put_`.
 - `nonzero` returns an `(N, ndim)` int64 tensor of 1-based coordinates.
 - Multi-output linear algebra (`svd`, `qr`) and selection (`sort`, `topk`,
   `unique`) use C out-parameters: the shim writes `lt_tensor*` handles and Lua

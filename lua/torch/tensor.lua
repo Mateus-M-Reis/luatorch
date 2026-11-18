@@ -627,6 +627,19 @@ local function to_native_index(value, what)
   return value > 0 and value - 1 or value
 end
 
+-- Convert a 1-based integer index tensor to ATen's 0-based form.  Zero is
+-- rejected explicitly because some ATen kernels (notably index_put_) accept
+-- negative indices, which would otherwise turn an off-by-one 0 into -1.
+local function zero_based_index(index, what)
+  if index:dtype_id() == 7 then
+    return index
+  end
+  if index:eq(0):any():item() then
+    error(what .. ": index 0 is invalid (indices are 1-based)", 3)
+  end
+  return index:to(2):sub(1)
+end
+
 local function index_cdata(self, indices)
   local n = self:dim()
   if #indices ~= n then
@@ -774,6 +787,65 @@ end
 -- Coordinates are returned 1-based, ready for indexing_select or get().
 function Tensor:nonzero()
   return wrap(lib.lt_nonzero(self.h)):to(2):add(1)
+end
+
+-- Tensor-of-indices selection.  With two arguments this is Torch7's
+-- `index(dim, indices)`, i.e. the out-of-place equivalent of index_select.
+-- With a single integer tensor it selects rows (the first dimension), matching
+-- PyTorch's `tensor[indices]` advanced-indexing form.
+function Tensor:index(dim, indices)
+  if is_tensor(dim) and indices == nil then
+    local zero_based = zero_based_index(dim, "index")
+    return wrap(lib.lt_index_tensor(self.h, zero_based.h))
+  end
+  if not is_tensor(indices) then
+    error("index expects a Tensor of indices", 3)
+  end
+  if indices:dtype_id() == 7 then
+    error("index expects an integer Tensor of indices; use masked_select for masks", 3)
+  end
+  local zero_based = zero_based_index(indices, "index")
+  return wrap(lib.lt_index_select(self.h, self:_cdim(dim), zero_based.h))
+end
+
+-- `indices` may be a 1-based int64 tensor (like gather) or, when the first
+-- argument is a tensor, the PyTorch argument order `take_along_dim(idx, dim?)`
+-- is accepted as well.
+function Tensor:take_along_dim(dim, indices)
+  if is_tensor(dim) then
+    local maybe_dim = indices
+    indices = dim
+    dim = maybe_dim
+  end
+  if not is_tensor(indices) then
+    error("take_along_dim expects an integer Tensor of indices", 3)
+  end
+  if indices:dtype_id() == 7 then
+    error("take_along_dim expects an integer Tensor of indices", 3)
+  end
+  local zero_based = zero_based_index(indices, "take_along_dim")
+  return wrap(lib.lt_take_along_dim(self.h, zero_based.h, self:_cdim(dim)))
+end
+
+-- In-place advanced assignment.  `indices` is either a boolean mask with the
+-- same shape as self, or an integer tensor selecting rows (dimension 1).
+-- Duplicate integer indices are applied in order when accumulate is false, so
+-- the last value wins on the CPU backend; accumulate=true sums duplicates.
+function Tensor:index_put_(indices, values, accumulate)
+  if not is_tensor(indices) then
+    error("index_put_ expects a boolean mask or integer Tensor of indices", 3)
+  end
+  if not is_tensor(values) then
+    if type(values) == "number" or type(values) == "boolean" then
+      values = from_scalar(values, { dtype = self:dtype_id() })
+    else
+      error("index_put_ expects a Tensor value", 3)
+    end
+  end
+  local zero_based = zero_based_index(indices, "index_put_")
+  check(lib.lt_index_put_(self.h, zero_based.h, values.h,
+    accumulate and 1 or 0))
+  return self
 end
 
 function Tensor:gather(dim, index)
@@ -1610,7 +1682,7 @@ mt.__index = function(self, key)
     if key:dtype() == "bool" then
       return Tensor.masked_select(self, key)
     end
-    error("only boolean tensors can be used as index keys", 2)
+    return Tensor.index(self, key)
   end
   local value = Tensor[key]
   if value ~= nil then
@@ -1628,6 +1700,17 @@ mt.__index = function(self, key)
 end
 
 mt.__newindex = function(self, key, value)
+  if is_tensor(key) then
+    if not is_tensor(value) then
+      if type(value) == "number" or type(value) == "boolean" then
+        value = from_scalar(value, { dtype = self:dtype_id() })
+      else
+        error("advanced assignment expects a Tensor or a number", 2)
+      end
+    end
+    Tensor.index_put_(self, key, value)
+    return
+  end
   if type(key) ~= "number" then
     rawset(self, key, value)
     return

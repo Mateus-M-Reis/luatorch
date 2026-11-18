@@ -211,6 +211,8 @@ t[index]                -- selects dimension 1; t[1] == t:select(1, 1)
 t[index] = number       -- 1-d scalar assignment
 t[index] = tensor       -- copy into the selected slice
 t[mask]                 -- boolean mask indexing -> 1-d tensor
+t[indices]              -- integer tensor-of-indices, selects dimension 1
+t[indices] = value      -- advanced assignment, in-place
 ```
 
 Shape-preserving selection:
@@ -221,16 +223,38 @@ t:narrow(dim, start, length)
 t:slice(dim, start, stop, step?)   -- start/stop are inclusive, 1-based
 t:flip(dim)
 t:masked_select(mask)
+t:index(dim, indices)              -- Torch7 alias for index_select
+t:index(indices)                   -- select dimension 1 with a tensor of indices
 t:index_select(dim, indices)       -- indices is an integer tensor, 1-based
 t:masked_fill(mask, value)
 t:gather(dim, index)               -- 1-based index tensor
 t:index_select_batch(dim, {i1,i2}) -- one C call for several index tensors
 t:scatter(dim, index, source)      -- out-of-place, 1-based index tensor
+t:take_along_dim(dim, indices)     -- 1-based dim, broadcast-compatible indices
+t:take_along_dim(indices, dim?)    -- PyTorch argument order; dim is optional
+t:index_put_(indices, values, accumulate?) -- in-place mask/index assignment
 t:nonzero()                        -- 1-based coordinates, shape (N, ndim)
 t:sort(dim?, descending?)          -- values, 1-based indices
 t:topk(k, dim?, largest?, sorted?) -- values, 1-based indices
 t:unique(sorted?, inverse?, counts?) -- values[, inverse, counts]; inverse is 1-based
 ```
+
+`take_along_dim` follows ATen broadcasting: `indices` must be an int64 tensor
+with the same rank as `t`, and its shape may be broadcast against `t` (for
+example a `1 x N` index broadcasts over the rows when selecting along the last
+dimension). The result shape is the broadcast of `t`'s shape, with the `dim`
+extent replaced by `indices:size(dim)`, and the index shape. Pass a 1-based
+`dim`, or omit it to use ATen's flattened form.
+
+`index_put_` modifies `t` in place and returns `t`. Its `indices` argument is
+either a boolean mask with the same shape as `t`, or an int64 tensor selecting
+rows along dimension 1. For a mask, `values` must contain one value per selected
+element (or be a scalar or broadcast-compatible tensor). For an integer index,
+`values` follows ATen's indexing broadcast rules, such as an `N x ...` result
+for an `N`-element index. With `accumulate = true`, repeated indices add their
+values. With the default `accumulate = false`, the CPU backend applies duplicate
+indices in order, so the last value wins; ATen formally leaves this case
+undefined, so use `accumulate = true` when duplicates are expected.
 
 Examples:
 
@@ -240,6 +264,8 @@ m:select(1, 2)          -- tensor([5, 6, 7, 8])
 m:slice(2, 2, 3)        -- 3x2, second and third columns
 m:slice(1, -2, -1)      -- last two rows
 m[m:gt(6)]              -- tensor([7, 8, 9, 10, 11, 12])
+m:take_along_dim(2, torch.LongTensor({ { 4, 2 } }))  -- broadcast column gather
+m:index_put_(m:gt(6), 0) -- zero every value greater than 6
 ```
 
 ## Elementwise math
@@ -480,6 +506,7 @@ torch.get_default_dtype()
 torch.dtype_name(dtype)
 torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / nonzero / gather / scatter / multinomial
+torch.index_select / index / take_along_dim / index_put_
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)

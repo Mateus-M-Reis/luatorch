@@ -48,7 +48,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 ## v0.3 — tensor completeness (partial)
 
 - [x] `gather`, `scatter`, `nonzero` (1-based coordinates), `index_select`
-- [ ] Richer indexing: tensor-of-indices ranges, `index_put_`,
+- [x] Richer indexing: tensor-of-indices ranges, `index_put_`,
   `take_along_dim`, advanced assignment
 - [x] `sort`, `topk`, `unique` (with inverse/counts)
 - [ ] `bincount`, `histc`
