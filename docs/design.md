@@ -173,7 +173,12 @@ Design points:
   the way in.
 - **DataLoader** produces batches from an in-memory dataset. `TensorDataset`
   batches with `index_select`; custom datasets are collated by stacking
-  per-sample tensors. Shuffling uses `randperm` converted to 1-based indices.
+  per-sample tensors. Shuffling uses `randperm` converted to 1-based indices, or
+  a private seeded PRNG when `seed` is set. `num_workers` uses Lua coroutines,
+  not OS threads: workers yield one batch per resume and are drained by a
+  bounded ordered `prefetch` queue. This keeps dataset access single-threaded,
+  preserves order across worker counts, and avoids locks/IPC, but cooperative
+  coroutines cannot overlap with native ATen work.
 - **Optimizers** keep per-parameter state in a table keyed by tensor identity.
   SGD, Adam, RMSprop and Adagrad follow their PyTorch update equations,
   including Adam bias correction. The update path allocates a few temporaries

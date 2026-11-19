@@ -331,7 +331,12 @@ local data = require("torch.utils.data")   -- or torch.utils.data
 
 local dataset = data.TensorDataset(inputs, labels)  -- 1-based get()
 local loader = data.DataLoader(dataset, {
-  batch_size = 64, shuffle = true, drop_last = false,
+  batch_size = 64,
+  shuffle = true,
+  drop_last = false,
+  num_workers = 2,      -- cooperative coroutine workers (default 0)
+  prefetch = 4,         -- batches prepared ahead (default 2*num_workers, or 0)
+  seed = 42,            -- optional deterministic shuffle
 })
 for batch_inputs, batch_labels in loader:iter() do
   -- ...
@@ -339,8 +344,36 @@ end
 ```
 
 Custom datasets implement `size()` and `get(index)`; an optional `batch(indices)`
-can return a whole batch at once. See [docs/nn.md](nn.md#data-loading) for
-datasets, modules, losses and optimizers.
+can return a whole batch at once. The dataset contract is unchanged by workers
+and prefetch.
+
+`loader:iter()` returns a callable iterator. It is exhausted with `nil`, closes
+its workers at the end of the epoch, and can be closed early with
+`iterator:close()` (or `loader:close()` for every live iterator). Iterators that
+are abandoned without closing are finalized by garbage collection.
+
+### Worker and prefetch model
+
+`num_workers` creates Lua coroutine workers in the current Lua state. These are
+**cooperative, not OS threads or processes**: only one Lua coroutine runs at a
+time, and a worker is resumed only while the loader is preparing batches. A
+worker yields one complete batch per resume, so dataset access remains
+single-threaded and needs no locking. This avoids thread/process start-up,
+copied Lua states, and IPC, but it also means workers cannot run in parallel
+with each other or with training math. In particular, a long-running ATen call
+does not yield to Lua, so it does not overlap with prefetching work.
+
+`prefetch` bounds how many batches may be prepared ahead of the batch currently
+being consumed. The queue holds at most `prefetch + 1` batches; `0` computes each
+batch only when requested. Workers and prefetch change neither the shuffle nor
+the batch order: batches are always delivered in the same deterministic order
+for a given seed and dataset size.
+
+Without `seed`, shuffling uses the global `torch` RNG (`torch.manual_seed`).
+With `seed`, the loader uses a private deterministic PRNG, does not consume the
+global RNG, and produces the same order each epoch. Worker failures are re-raised
+on the batch that failed, with worker context, and close the iterator. See
+[docs/nn.md](nn.md#data-loading) for datasets, modules, losses and optimizers.
 
 ## Shape manipulation
 

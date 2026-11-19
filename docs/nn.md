@@ -130,6 +130,9 @@ local loader = data.DataLoader(dataset, {
   batch_size = 64,
   shuffle = true,
   drop_last = false,
+  num_workers = 2,      -- cooperative coroutine workers
+  prefetch = 4,         -- prepared batches ahead of the current batch
+  seed = 42,            -- optional deterministic shuffle
 })
 
 for batch_inputs, batch_labels in loader:iter() do
@@ -143,10 +146,24 @@ end
 - `dataset:size()` and `dataset:get(index)` (1-based) define a custom dataset.
 - Datasets may implement `dataset:batch(indices)` to return a whole batch
   (TensorDataset uses `index_select`, avoiding per-sample overhead).
-- Shuffling uses the global RNG; call `torch.manual_seed` for reproducibility.
+- Without `seed`, shuffling uses the global RNG; call `torch.manual_seed` for
+  reproducibility. With `seed`, shuffling is deterministic per loader, does not
+  consume the global RNG, and repeats the same order each epoch.
 - `drop_last` discards an incomplete final batch; `loader:num_batches()` gives
   the number of batches per epoch.
+- `num_workers` and `prefetch` do not change batch order. `prefetch` is bounded:
+  at most `prefetch + 1` batches are held, and `0` disables look-ahead.
 - There are no built-in image/text datasets yet; build tensors and wrap them.
+
+Workers are Lua coroutines, not OS threads or processes. LuaJIT executes one Lua
+coroutine at a time, so workers do not run in parallel with each other or with
+training. A worker yields exactly one prepared batch per resume; this hides
+batch preparation behind the loader's own control flow and avoids locks, copied
+Lua states, and IPC, but a long native ATen call cannot overlap with worker
+work. Iterators close automatically when an epoch is exhausted or a worker
+fails. Call `iterator:close()` (or `loader:close()`) when leaving a loop early.
+Worker errors are re-raised in batch order with the failing worker and batch in
+the message.
 
 ## Losses
 

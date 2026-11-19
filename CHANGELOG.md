@@ -3,6 +3,31 @@
 All notable changes to luatorch are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `DataLoader` cooperative Lua coroutine workers (`num_workers`), bounded
+  `prefetch`, deterministic loader-local `seed`, explicit
+  `iterator:close()`/`loader:close()`, and ordered worker-error propagation.
+
+### Changed
+
+- `DataLoader:iter()` now returns a callable iterator object; existing
+  `for ... in loader:iter()` and `loader:iter()()` usage is unchanged.
+
+### Documentation
+
+- Document that workers are cooperative coroutines in the current Lua state,
+  not OS threads or processes, and that they do not overlap with native ATen
+  work.
+
+### Tests
+
+- Expanded the dependency-free suite to 300 tests, including prefetch ordering
+  and bounds, exhausted epochs, worker errors, and seeded deterministic
+  shuffling across worker counts.
+
 ## [0.8.0] — 2026-11-17
 
 ### Added

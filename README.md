@@ -253,7 +253,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
 | Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
-| Data | TensorDataset, DataLoader, custom datasets, shuffling |
+| Data | TensorDataset, DataLoader, custom datasets, seeded shuffling, cooperative prefetch workers |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
 | Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused last-dim softmax/log_softmax and cross-entropy, fused MSE/L1 losses, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
