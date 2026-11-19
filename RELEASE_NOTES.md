@@ -1,21 +1,21 @@
-# luatorch 0.9.0
+# luatorch 0.10.0
 
 LuaJIT tensor engine with an ATen backend and fusion compiler.
 
 ## Highlights
 
-- multi-layer RNN and LSTM stacks;
-- bidirectional forward/reverse passes;
-- inter-layer dropout, disabled in eval mode;
-- PyTorch-compatible parameter names (`weight_ih_l1_reverse`, ...);
-- explicit per-layer hidden/cell states.
+- SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the fused C
+  backend;
+- `#pragma omp parallel for simd` on the elementwise kernel;
+- the 0.9 multi-layer/bidirectional RNN and LSTM stack remains included.
 
-The 0.8 feature set remains:
+## Accuracy and scope
 
-- optimizer parameter groups, weighted/ignored/smoothed losses;
-- safetensors state-dict interchange, `.npz`-adjacent I/O through numlua;
-- batched index-select, arbitrary-dimension fused softmax;
-- LuaRocks packaging and `make install`.
+The fast transcendental helpers are compiled into fused kernels only; eager
+ATen operations are unchanged. They are intended for float32/float64 inference
+and training paths where the existing fusion accuracy tolerances apply. `log`
+still uses the system libm implementation. Linear/conv epilogue fusion is not
+part of this release.
 
 ## Requirements
 
@@ -31,7 +31,7 @@ scripts/fetch_libtorch.sh
 scripts/build.sh
 make install
 # or
-luarocks --lua-version=5.1 make luatorch-0.9.0-1.rockspec
+luarocks --lua-version=5.1 make luatorch-0.10.0-1.rockspec
 ```
 
 ## Verification

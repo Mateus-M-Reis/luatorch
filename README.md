@@ -131,13 +131,12 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.9.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.10.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, fused reductions, and covered by **303 tests**.
-> The 0.9 additions are multi-layer/bidirectional RNN and LSTM with inter-layer
-> dropout, on top of the 0.8 optimizer groups, weighted losses, safetensors,
-> batched index-select, arbitrary-dimension softmax, and LuaRocks packaging.
-> CUDA and the remaining fusion performance work are next
+> first-order fused backward, fused reductions, and **303 tests**. The 0.10
+> additions are SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the
+> fused C backend, plus the 0.9 multi-layer/bidirectional RNN and LSTM with
+> dropout. CUDA and linear/conv epilogue fusion remain next
 > (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start

@@ -21,6 +21,41 @@ void luatorch_backward(const void** ptrs, const double* scalars, int64_t n, int 
 
 local M = {}
 
+local math_helpers = [[
+static inline float luatorch_expf(float x) {
+  if (x > 88.0f) return INFINITY;
+  if (x < -87.0f) return 0.0f;
+  float k = rintf(x * 1.4426950408889634f);
+  float r = x - k * 0.6931471805599453f;
+  float p = 1.0f + r * (1.0f + r * (0.5f + r * (1.0f / 6.0f +
+    r * (1.0f / 24.0f + r * (1.0f / 120.0f + r * (1.0f / 720.0f))))));
+  return ldexpf(p, (int)k);
+}
+static inline double luatorch_exp(double x) {
+  if (x > 709.0) return INFINITY;
+  if (x < -745.0) return 0.0;
+  double k = rint(x * 1.4426950408889634);
+  double r = x - k * 0.6931471805599453;
+  double p = 1.0 + r * (1.0 + r * (0.5 + r * (1.0 / 6.0 +
+    r * (1.0 / 24.0 + r * (1.0 / 120.0 + r * (1.0 / 720.0 +
+    r * (1.0 / 5040.0 + r * (1.0 / 40320.0 + r * (1.0 / 362880.0 +
+    r * (1.0 / 3628800.0 + r * (1.0 / 39916800.0)))))))))));
+  return ldexp(p, (int)k);
+}
+static inline float luatorch_tanhf(float x) {
+  if (x > 9.0f) return 1.0f;
+  if (x < -9.0f) return -1.0f;
+  float e = luatorch_expf(2.0f * x);
+  return (e - 1.0f) / (e + 1.0f);
+}
+static inline double luatorch_tanh(double x) {
+  if (x > 20.0) return 1.0;
+  if (x < -20.0) return -1.0;
+  double e = luatorch_exp(2.0 * x);
+  return (e - 1.0) / (e + 1.0);
+}
+]]
+
 local type_info = {
   [0] = {
     ctype = "float",
@@ -28,10 +63,10 @@ local type_info = {
     abs = "fabsf",
     max = "fmaxf",
     min = "fminf",
-    exp = "expf",
+    exp = "luatorch_expf",
     log = "logf",
     sqrt = "sqrtf",
-    tanh = "tanhf",
+    tanh = "luatorch_tanhf",
     pow = "powf",
     suffix = "f",
   },
@@ -41,10 +76,10 @@ local type_info = {
     abs = "fabs",
     max = "fmax",
     min = "fmin",
-    exp = "exp",
+    exp = "luatorch_exp",
     log = "log",
     sqrt = "sqrt",
-    tanh = "tanh",
+    tanh = "luatorch_tanh",
     pow = "pow",
     suffix = "",
   },
@@ -257,11 +292,11 @@ local function generate(expression, signature, dtype)
     "#ifdef _OPENMP",
     "#include <omp.h>",
     "#endif",
-    "",
+    math_helpers,
     "void luatorch_kernel(const void** ptrs, const double* scalars, int64_t n, int threads) {",
     table.concat(prelude, "\n"),
     "#ifdef _OPENMP",
-    "#pragma omp parallel for if(threads > 1 && n > 20000) num_threads(threads)",
+    "#pragma omp parallel for simd if(threads > 1 && n > 20000) num_threads(threads)",
     "#endif",
     "  for (int64_t i = 0; i < n; ++i) {",
     table.concat(context.lines, "\n"),
@@ -774,7 +809,7 @@ local function generate_reduce(expression, signature, dtype, reduction)
   local helper = table.concat({
     "#include <stdint.h>",
     "#include <math.h>",
-    "",
+    math_helpers,
     string.format("static inline %s luatorch_expr(%s) {",
       info.ctype, table.concat(parameters, ", ")),
     table.concat(context.lines, "\n"),
@@ -790,12 +825,18 @@ local function generate_reduce(expression, signature, dtype, reduction)
   }
   if reduction == "logsumexp" then
     body[#body + 1] = string.format("  %s maximum = -INFINITY;", info.ctype)
+    body[#body + 1] = "#ifdef _OPENMP"
+    body[#body + 1] = "#pragma omp simd"
+    body[#body + 1] = "#endif"
     body[#body + 1] = "  for (int64_t k = 0; k < n; ++k) {"
     body[#body + 1] = "    const " .. info.ctype ..
       " value = luatorch_expr(" .. argument_prefix .. "k);"
     body[#body + 1] = "    if (value > maximum) maximum = value;"
     body[#body + 1] = "  }"
     body[#body + 1] = string.format("  %s sum = 0;", info.ctype)
+    body[#body + 1] = "#ifdef _OPENMP"
+    body[#body + 1] = "#pragma omp simd"
+    body[#body + 1] = "#endif"
     body[#body + 1] = "  for (int64_t k = 0; k < n; ++k) {"
     body[#body + 1] = "    sum += " .. info.exp ..
       "(luatorch_expr(" .. argument_prefix .. "k) - maximum);"

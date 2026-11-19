@@ -28,6 +28,18 @@ All notable changes to luatorch are recorded here. The format follows
   and bounds, exhausted epochs, worker errors, and seeded deterministic
   shuffling across worker counts.
 
+## [0.10.0] — 2026-11-19
+
+### Added
+
+- SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the fused C
+  backend; float32 users trade a small accuracy margin for vectorizable math;
+- `#pragma omp parallel for simd` on the elementwise kernel.
+
+### Tests
+
+- 303 tests.
+
 ## [0.9.0] — 2026-11-19
 
 ### Added
