@@ -1,4 +1,4 @@
-# luatorch API reference (0.8.0)
+# luatorch API reference (0.9.0)
 
 All examples assume:
 
@@ -516,6 +516,6 @@ torch.sort / topk / unique / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
-torch.VERSION             -- luatorch version string ("0.8.0")
+torch.VERSION             -- luatorch version string ("0.9.0")
 torch.version             -- libtorch version string
 ```

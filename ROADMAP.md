@@ -39,7 +39,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] PyTorch state-dict interchange through safetensors
 - [x] GroupNorm
 - [x] ConvTranspose2d
-- [x] Single-layer RNN and LSTM (multi-layer/bidirectional still open)
+- [x] RNN and LSTM with multiple layers, bidirectionality, and dropout
 - [x] Loss options: class weights, `ignore_index`, label smoothing
 - [x] AMSGrad optimizer mode (fused)
 - [x] Per-parameter optimizer groups

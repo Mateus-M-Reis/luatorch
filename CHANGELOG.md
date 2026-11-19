@@ -28,6 +28,16 @@ All notable changes to luatorch are recorded here. The format follows
   and bounds, exhausted epochs, worker errors, and seeded deterministic
   shuffling across worker counts.
 
+## [0.9.0] — 2026-11-19
+
+### Added
+
+- multi-layer RNN/LSTM stacks with PyTorch-compatible `_lN` parameter names;
+- bidirectional RNN/LSTM traversal and concatenated outputs;
+- inter-layer dropout, disabled in eval mode;
+- explicit hidden/cell state tensors per layer and direction;
+- 303 total tests.
+
 ## [0.8.0] — 2026-11-17
 
 ### Added

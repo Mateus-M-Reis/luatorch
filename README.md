@@ -131,14 +131,14 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.8.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.9.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, fused `sum`/`mean`/`logsumexp` reductions, and
-> covered by **295 tests**. The 0.8 additions are optimizer parameter groups,
-> class-weighted/ignore-index/label-smoothed losses, single-layer RNN and LSTM,
-> safetensors state-dict interchange, batched index-select, arbitrary-dimension
-> fused softmax, and LuaRocks packaging. CUDA and multi-layer recurrence are
-> next (see [ROADMAP.md](ROADMAP.md)).
+> first-order fused backward, fused reductions, and covered by **303 tests**.
+> The 0.9 additions are multi-layer/bidirectional RNN and LSTM with inter-layer
+> dropout, on top of the 0.8 optimizer groups, weighted losses, safetensors,
+> batched index-select, arbitrary-dimension softmax, and LuaRocks packaging.
+> CUDA and the remaining fusion performance work are next
+> (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -204,7 +204,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 295 tests
+scripts/test.sh               # 303 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```

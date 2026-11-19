@@ -1,38 +1,41 @@
-# luatorch 0.8.0
+# luatorch 0.9.0
 
 LuaJIT tensor engine with an ATen backend and fusion compiler.
 
 ## Highlights
 
-- PyTorch-style optimizer parameter groups with per-group hyperparameters;
-- weighted/ignored/smoothed classification losses;
-- single-layer RNN and LSTM with PyTorch-compatible parameter names;
-- safetensors interchange for PyTorch state dictionaries;
-- batched index-select in one native call;
-- fused softmax/log-softmax over arbitrary dimensions;
-- LuaRocks rockspec and `make install`.
+- multi-layer RNN and LSTM stacks;
+- bidirectional forward/reverse passes;
+- inter-layer dropout, disabled in eval mode;
+- PyTorch-compatible parameter names (`weight_ih_l1_reverse`, ...);
+- explicit per-layer hidden/cell states.
+
+The 0.8 feature set remains:
+
+- optimizer parameter groups, weighted/ignored/smoothed losses;
+- safetensors state-dict interchange, `.npz`-adjacent I/O through numlua;
+- batched index-select, arbitrary-dimension fused softmax;
+- LuaRocks packaging and `make install`.
 
 ## Requirements
 
-- LuaJIT 2.1 with headers
-- CMake ≥ 3.18 and a C++17 compiler
-- libtorch 2.5.x CPU (or a compatible installation)
-- Linux/macOS; a C compiler for the fusion backend
+- LuaJIT 2.1
+- CMake ≥ 3.18 and C++17
+- libtorch 2.5.x CPU
+- LuaRocks for the optional package install
 
 ## Install
 
 ```sh
 scripts/fetch_libtorch.sh
 scripts/build.sh
-make install                 # or: luarocks make luatorch-0.8.0-1.rockspec
+make install
+# or
+luarocks --lua-version=5.1 make luatorch-0.9.0-1.rockspec
 ```
-
-The LuaRocks package contains the Lua surface; build the native shim with
-`scripts/build.sh` and point `LUATORCH_LIB` at it (or install it next to
-`torch/lib.lua`).
 
 ## Verification
 
-- 295 dependency-free tests
+- 303 dependency-free tests
 - GCC and Clang CI
 - LuaRocks install smoke test

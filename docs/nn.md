@@ -234,7 +234,7 @@ F.dropout(x, p, training, inplace)
 
 ## Recurrent layers
 
-Single-layer, unidirectional RNN and LSTM layers are available:
+Multi-layer, optionally bidirectional RNN and LSTM layers are available:
 
 ```lua
 local rnn = nn.RNN(16, 32, { batch_first = true, nonlinearity = "tanh" })
@@ -246,11 +246,14 @@ local output2, hidden2, cell2 = lstm(input)
 
 - Input is `[seq, batch, input]` by default or `[batch, seq, input]` with
   `batch_first = true`; a 2-D input is treated as one unbatched sequence.
-- Hidden/cell states are optional; pass `[1, batch, hidden]` tensors (or
-  `[batch, hidden]`) to continue a sequence.
-- Parameters use PyTorch names (`weight_ih_l0`, `weight_hh_l0`,
-  `bias_ih_l0`, `bias_hh_l0`), so safetensors state dictionaries map directly.
-- Multi-layer, bidirectional, and dropout recurrence are not implemented yet.
+- `num_layers` stacks cells; `bidirectional = true` runs forward and reverse
+  passes and concatenates their outputs.
+- `dropout` is applied between layers in training mode and disabled in `eval()`.
+- Hidden/cell states are optional; pass `[num_layers * directions, batch,
+  hidden]` tensors (or `[batch, hidden]` for a single direction) to continue a
+  sequence.
+- Parameters use PyTorch names, including `_l1` and `_reverse` suffixes, so
+  safetensors state dictionaries map directly.
 
 ## Optimizers
 
