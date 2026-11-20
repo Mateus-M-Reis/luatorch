@@ -7,6 +7,7 @@ LuaJIT tensor engine with an ATen backend and fusion compiler.
 - SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the fused C
   backend;
 - `#pragma omp parallel for simd` on the elementwise kernel;
+- linear/conv bias+activation epilogues and exact GELU;
 - the 0.9 multi-layer/bidirectional RNN and LSTM stack remains included.
 
 ## Accuracy and scope
@@ -14,8 +15,9 @@ LuaJIT tensor engine with an ATen backend and fusion compiler.
 The fast transcendental helpers are compiled into fused kernels only; eager
 ATen operations are unchanged. They are intended for float32/float64 inference
 and training paths where the existing fusion accuracy tolerances apply. `log`
-still uses the system libm implementation. Linear/conv epilogue fusion is not
-part of this release.
+still uses the system libm implementation. Linear/conv epilogues apply the
+activation in place over ATen's `addmm`/`conv2d`; they do not replace the
+GEMM/conv microkernel.
 
 ## Requirements
 
@@ -36,6 +38,6 @@ luarocks --lua-version=5.1 make luatorch-0.10.0-1.rockspec
 
 ## Verification
 
-- 303 dependency-free tests
+- 313 dependency-free tests
 - GCC and Clang CI
 - LuaRocks install smoke test

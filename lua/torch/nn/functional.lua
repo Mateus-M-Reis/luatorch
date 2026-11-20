@@ -59,6 +59,10 @@ function F.sigmoid(input)
   return input:sigmoid()
 end
 
+function F.gelu(input)
+  return input:gelu()
+end
+
 function F.tanh(input)
   return input:tanh()
 end

@@ -79,8 +79,8 @@ references.
 
 | Module | Signature |
 | --- | --- |
-| `nn.Linear(in, out, bias?)` | affine transform over the last dimension |
-| `nn.Conv2d(in, out, kernel, opts?)` | 2-D convolution, NCHW, groups supported |
+| `nn.Linear(in, out, bias?, activation?)` | affine transform over the last dimension; `bias` may be an options table |
+| `nn.Conv2d(in, out, kernel, opts?)` | 2-D convolution, NCHW, groups supported; `opts.activation` optional |
 | `nn.MaxPool2d(kernel, stride?, padding?, dilation?, ceil_mode?)` | max pooling |
 | `nn.AvgPool2d(kernel, stride?, padding?, ceil_mode?, count_include_pad?)` | average pooling |
 | `nn.AdaptiveAvgPool2d(1)` | global average pooling |
@@ -94,6 +94,7 @@ references.
 | `nn.ReLU(inplace?)` | rectifier |
 | `nn.LeakyReLU(slope?, inplace?)` | leaky rectifier |
 | `nn.Sigmoid()` / `nn.Tanh()` | elementwise activations |
+| `nn.GELU()` | exact GELU, matching ATen's default |
 | `nn.Softmax(dim?)` / `nn.LogSoftmax(dim?)` | default dim is the last one |
 | `nn.Flatten(start_dim?, end_dim?)` | defaults `start_dim = 2`, `end_dim = -1` |
 | `nn.Identity()` | pass-through |
@@ -218,7 +219,7 @@ local F = require("torch.nn").functional
 F.linear(x, weight, bias)
 F.relu(x, inplace)
 F.leaky_relu(x, slope, inplace)
-F.sigmoid(x)   F.tanh(x)
+F.sigmoid(x)   F.tanh(x)   F.gelu(x)
 F.softmax(x, dim)   F.log_softmax(x, dim)
 F.conv2d(x, weight, bias, stride, padding, dilation, groups)
 F.max_pool2d(x, kernel, stride, padding, dilation, ceil_mode)
@@ -290,6 +291,19 @@ by tensor identity.
 `nn.Linear` uses a single `addmm` for 2D inputs, folding the bias into the
 matrix multiply. Higher-rank inputs are flattened to 2D, projected, and
 reshaped back. This avoids a separate bias kernel and temporary.
+
+`nn.Linear` and `nn.Conv2d` accept an optional `activation` option; when set,
+`forward` calls `torch.fuse.linear` / `torch.fuse.conv2d` so the activation runs
+in place on the GEMM/convolution output without allocating another tensor:
+
+```lua
+local layer = nn.Linear(784, 256, { activation = "relu" })
+local conv = nn.Conv2d(3, 16, 3, { padding = 1, activation = "gelu" })
+```
+
+Use `nn.Sequential(layer, nn.ReLU())` when you need a separate activation
+module (for example to toggle it in `eval` mode or to use an activation not in
+the fused set).
 
 ### Fused update kernels
 

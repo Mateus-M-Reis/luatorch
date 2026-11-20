@@ -911,7 +911,8 @@ local unary_fns = {
   sin = lib.lt_sin, cos = lib.lt_cos, tan = lib.lt_tan, asin = lib.lt_asin,
   acos = lib.lt_acos, atan = lib.lt_atan, sinh = lib.lt_sinh,
   cosh = lib.lt_cosh, tanh = lib.lt_tanh, sigmoid = lib.lt_sigmoid,
-  relu = lib.lt_relu, floor = lib.lt_floor, ceil = lib.lt_ceil,
+  relu = lib.lt_relu, gelu = lib.lt_gelu, floor = lib.lt_floor,
+  ceil = lib.lt_ceil,
   round = lib.lt_round, trunc = lib.lt_trunc, sign = lib.lt_sign,
   square = lib.lt_square, reciprocal = lib.lt_reciprocal,
 }

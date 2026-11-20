@@ -1954,6 +1954,18 @@ LT_UNARY(reciprocal, reciprocal)
 
 #undef LT_UNARY
 
+lt_tensor* lt_gelu(lt_tensor* a, int inplace) {
+  try {
+    clear_error();
+    if (inplace) {
+      a->t.copy_(at::gelu(a->t));
+      return a;
+    }
+    return wrap(at::gelu(a->t));
+  }
+  LT_CATCH_NULL
+}
+
 lt_tensor* lt_clamp(lt_tensor* a, double lo, double hi, int inplace) {
   try {
     clear_error();
@@ -2185,6 +2197,129 @@ lt_tensor* lt_conv2d(
         at::IntArrayRef({pad_h, pad_w}),
         at::IntArrayRef({dilation_h, dilation_w}),
         groups));
+  }
+  LT_CATCH_NULL
+}
+
+namespace {
+
+// The epilogue activations are deliberately ATen's in-place kernels.  They
+// run on the freshly allocated addmm/conv2d result, so the forward avoids the
+// separate activation temporary while ATen still records the in-place node in
+// the autograd graph.  A hand-written C loop here would have to reproduce
+// backward as well; this keeps the fast path correct in training.
+void apply_epilogue_activation(at::Tensor& output, int activation) {
+  switch (activation) {
+    case 0:
+      return;
+    case 1:
+      output.relu_();
+      return;
+    case 2:
+      at::gelu_(output);
+      return;
+    case 3:
+      output.sigmoid_();
+      return;
+    case 4:
+      output.tanh_();
+      return;
+    default:
+      throw std::runtime_error(
+          "epilogue: unknown activation code " + std::to_string(activation));
+  }
+}
+
+void check_epilogue_dtype(
+    const at::Tensor& reference, const at::Tensor& other, const char* name) {
+  if (reference.scalar_type() != at::kFloat &&
+      reference.scalar_type() != at::kDouble) {
+    throw std::runtime_error(
+        std::string(name) + ": float32 or float64 required");
+  }
+  if (other.scalar_type() != reference.scalar_type()) {
+    throw std::runtime_error(std::string(name) + ": dtype mismatch");
+  }
+}
+
+}  // namespace
+
+lt_tensor* lt_linear_epilogue(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int activation) {
+  try {
+    clear_error();
+    if (input == nullptr || weight == nullptr) {
+      throw std::runtime_error("linear epilogue: input and weight are required");
+    }
+    if (input->t.dim() != 2 || weight->t.dim() != 2) {
+      throw std::runtime_error("linear epilogue: 2-D input and weight required");
+    }
+    check_epilogue_dtype(input->t, weight->t, "linear epilogue");
+    if (input->t.size(1) != weight->t.size(1)) {
+      throw std::runtime_error(
+          "linear epilogue: input and weight feature dimensions differ");
+    }
+    if (bias != nullptr) {
+      check_epilogue_dtype(input->t, bias->t, "linear epilogue");
+      if (bias->t.dim() != 1 || bias->t.size(0) != weight->t.size(0)) {
+        throw std::runtime_error(
+            "linear epilogue: bias must be 1-D with one value per output");
+      }
+    }
+
+    at::Tensor output = bias != nullptr
+        ? at::addmm(bias->t, input->t, weight->t.t())
+        : at::matmul(input->t, weight->t.t());
+    apply_epilogue_activation(output, activation);
+    return wrap(output);
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_conv2d_epilogue(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups, int activation) {
+  try {
+    clear_error();
+    if (input == nullptr || weight == nullptr) {
+      throw std::runtime_error("conv2d epilogue: input and weight are required");
+    }
+    if (input->t.dim() != 4 || weight->t.dim() != 4) {
+      throw std::runtime_error(
+          "conv2d epilogue: 4-D input and weight required");
+    }
+    check_epilogue_dtype(input->t, weight->t, "conv2d epilogue");
+    if (groups < 1) {
+      throw std::runtime_error("conv2d epilogue: groups must be positive");
+    }
+    if (input->t.size(1) != weight->t.size(1) * groups) {
+      throw std::runtime_error(
+          "conv2d epilogue: input channels do not match weight and groups");
+    }
+    if (bias != nullptr) {
+      check_epilogue_dtype(input->t, bias->t, "conv2d epilogue");
+      if (bias->t.dim() != 1 || bias->t.size(0) != weight->t.size(0)) {
+        throw std::runtime_error(
+            "conv2d epilogue: bias must be 1-D with one value per channel");
+      }
+    }
+
+    std::optional<at::Tensor> bias_tensor;
+    if (bias != nullptr) {
+      bias_tensor = bias->t;
+    }
+    at::Tensor output = at::conv2d(
+        input->t, weight->t, bias_tensor,
+        at::IntArrayRef({stride_h, stride_w}),
+        at::IntArrayRef({pad_h, pad_w}),
+        at::IntArrayRef({dilation_h, dilation_w}),
+        groups);
+    apply_epilogue_activation(output, activation);
+    return wrap(output);
   }
   LT_CATCH_NULL
 }

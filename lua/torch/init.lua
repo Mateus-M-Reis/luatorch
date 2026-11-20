@@ -304,6 +304,7 @@ torch.transpose = function(t, d1, d2) return t:transpose(d1, d2) end
 torch.reshape = function(t, ...) return t:reshape(...) end
 torch.clamp = function(t, lo, hi) return t:clamp(lo, hi) end
 torch.relu = function(t) return t:relu() end
+torch.gelu = function(t) return t:gelu() end
 torch.sigmoid = function(t) return t:sigmoid() end
 torch.tanh = function(t) return t:tanh() end
 torch.exp = function(t) return t:exp() end

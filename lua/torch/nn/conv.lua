@@ -21,14 +21,16 @@ end
 
 function Conv2d.new(in_channels, out_channels, kernel_size,
     stride, padding, dilation, groups, bias)
+  local activation = nil
   if type(stride) == "table" and
     (stride.stride or stride.padding or stride.dilation or
-      stride.groups or stride.bias ~= nil) then
+      stride.groups or stride.bias ~= nil or stride.activation ~= nil) then
     local options = stride
     stride = options.stride
     padding = options.padding
     dilation = options.dilation
     groups = options.groups
+    activation = options.activation
     if options.bias ~= nil then
       bias = options.bias
     end
@@ -57,6 +59,7 @@ function Conv2d.new(in_channels, out_channels, kernel_size,
   self.padding = { pad_h, pad_w }
   self.dilation = { dilation_h, dilation_w }
   self.groups = groups
+  self.activation = activation
 
   local fan_in = (in_channels / groups) * kernel_h * kernel_w
   local bound = 1 / math.sqrt(fan_in)
@@ -77,6 +80,15 @@ function Conv2d.new(in_channels, out_channels, kernel_size,
 end
 
 function Conv2d:forward(input)
+  if self.activation ~= nil then
+    return torch.fuse.conv2d(input, self.weight, self.bias, {
+      activation = self.activation,
+      stride = self.stride,
+      padding = self.padding,
+      dilation = self.dilation,
+      groups = self.groups,
+    })
+  end
   return torch.conv2d(
     input, self.weight, self.bias,
     self.stride, self.padding, self.dilation, self.groups)

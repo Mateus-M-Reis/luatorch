@@ -162,6 +162,16 @@ lt_tensor* lt_conv2d(
     int64_t pad_h, int64_t pad_w,
     int64_t dilation_h, int64_t dilation_w,
     int64_t groups);
+lt_tensor* lt_linear_epilogue(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int activation);
+lt_tensor* lt_conv2d_epilogue(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups, int activation);
+lt_tensor* lt_gelu(lt_tensor* a, int inplace);
 lt_tensor* lt_conv_transpose2d(
     lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
     int64_t stride_h, int64_t stride_w,

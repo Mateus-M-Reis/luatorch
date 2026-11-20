@@ -35,6 +35,27 @@ local function bench(name, iterations, fn, note)
   return seconds
 end
 
+-- Best-of variant for the epilogue rows: the additive dispatch/memory saving
+-- is small relative to a BLAS call, so the minimum is less noisy than the
+-- median on a throttling CPU.  Conditions are printed by the caller.
+local function bench_best(name, iterations, fn, note)
+  for _ = 1, 10 do
+    fn()
+  end
+  collectgarbage("collect")
+  local best = math.huge
+  for _ = 1, iterations do
+    local started = os.clock()
+    fn()
+    local elapsed = os.clock() - started
+    if elapsed < best then
+      best = elapsed
+    end
+  end
+  results[#results + 1] = { name = name, seconds = best, note = note }
+  return best
+end
+
 local function format_row(row)
   local milliseconds = row.seconds * 1000
   local per_iteration = row.note or ""
@@ -194,8 +215,71 @@ bench("ConvNet forward 8x3x32x32", 20, function()
   local output = convnet(images)
 end)
 
+-- Linear / convolution epilogues ----------------------------------------
+-- Compare one fused call against the existing addmm/conv2d + activation
+-- sequence.  Inference conditions: float32, no autograd, same BLAS/ATen
+-- kernels on both sides.
+local function eager_activation(tensor, name)
+  if name == "relu" then return tensor:relu() end
+  if name == "gelu" then return tensor:gelu() end
+  if name == "sigmoid" then return tensor:sigmoid() end
+  if name == "tanh" then return tensor:tanh() end
+  error("unknown activation: " .. tostring(name))
+end
+
+local linear_input = torch.randn(128, 784)
+local linear_weight = torch.randn(256, 784)
+local linear_bias = torch.randn(256)
+
+local previous_threads = torch.get_num_threads()
+torch.set_num_threads(1)
+print("epilogue benchmarks: float32, no autograd, 1 thread, best-of")
+
+torch.no_grad(function()
+  for _, name in ipairs({ "relu", "gelu", "sigmoid", "tanh" }) do
+    local eager_seconds = bench_best(
+      "Linear 128x784->256 eager+" .. name, 200, function()
+        eager_activation(
+          linear_bias:addmm(linear_input, linear_weight:t()), name)
+      end, "best-of")
+    local fused_seconds = bench_best(
+      "Linear 128x784->256 fused+" .. name, 200, function()
+        torch.fuse.linear(
+          linear_input, linear_weight, linear_bias, name)
+      end, "best-of")
+    print(string.format("%-34s %12.2fx", "  fused vs eager " .. name,
+      eager_seconds / fused_seconds))
+  end
+end)
+
+local conv_input = torch.randn(8, 3, 32, 32)
+local conv_weight = torch.randn(16, 3, 3, 3)
+local conv_bias = torch.randn(16)
+
+torch.no_grad(function()
+  for _, name in ipairs({ "relu", "gelu", "sigmoid", "tanh" }) do
+    local eager_seconds = bench_best(
+      "Conv2d 8x3x32x32->16 eager+" .. name, 100, function()
+        eager_activation(
+          torch.conv2d(conv_input, conv_weight, conv_bias, 1, 1, 1, 1),
+          name)
+      end, "best-of")
+    local fused_seconds = bench_best(
+      "Conv2d 8x3x32x32->16 fused+" .. name, 100, function()
+        torch.fuse.conv2d(conv_input, conv_weight, conv_bias, {
+          activation = name,
+          padding = 1,
+        })
+      end, "best-of")
+    print(string.format("%-34s %12.2fx", "  fused vs eager " .. name,
+      eager_seconds / fused_seconds))
+  end
+end)
+
+torch.set_num_threads(previous_threads)
+
 print(string.rep("-", 78))
-print(string.format("%-34s %12s", "benchmark", "median"))
+print(string.format("%-34s %12s", "benchmark", "time"))
 
 for _, row in ipairs(results) do
   print(format_row(row))

@@ -83,7 +83,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [x] First-order fused forward+backward through a C++ autograd Function
 - [ ] Higher-order gradients through fused expressions
 - [ ] Automatic tracing of ordinary operator code (lazy tensors)
-- [ ] Linear/conv epilogue fusion (`x@W + b`, bias+activation)
+- [x] Linear/conv epilogue fusion (`x@W + b`, bias+activation)
 - [ ] Vectorised transcendentals (libmvec or polynomial approximations)
 - [x] Fused Adam/AdamW/SGD update kernels (5x optimizer step, 1.3x train step)
 - [ ] Multi-output fusion and in-place fused kernels

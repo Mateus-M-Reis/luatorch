@@ -12,9 +12,14 @@ end
 
 local Linear = class("Linear")
 
-function Linear.new(in_features, out_features, bias)
+function Linear.new(in_features, out_features, bias, activation)
   if type(in_features) ~= "number" or type(out_features) ~= "number" then
-    error("Linear(in_features, out_features, bias?)", 3)
+    error("Linear(in_features, out_features, bias?, activation?)", 3)
+  end
+  if type(bias) == "table" then
+    local options = bias
+    bias = options.bias
+    activation = options.activation
   end
   if bias == nil then
     bias = true
@@ -22,6 +27,7 @@ function Linear.new(in_features, out_features, bias)
   local self = setmetatable(Module.new(), Linear)
   self.in_features = in_features
   self.out_features = out_features
+  self.activation = activation
 
   local bound = 1 / math.sqrt(in_features)
   local weight = torch.rand(out_features, in_features):mul(2 * bound):sub(bound)
@@ -39,6 +45,11 @@ function Linear.new(in_features, out_features, bias)
 end
 
 function Linear:forward(input)
+  if self.activation ~= nil then
+    -- One call: ATen's addmm (bias included) plus an in-place activation.
+    -- The fused helper falls back to eager ATen for unsupported layouts.
+    return torch.fuse.linear(input, self.weight, self.bias, self.activation)
+  end
   if self.bias then
     if input:dim() == 2 then
       -- One addmm kernel instead of matmul + separate bias add.
@@ -123,6 +134,16 @@ end
 
 function Tanh:forward(input)
   return input:tanh()
+end
+
+local GELU = class("GELU")
+
+function GELU.new()
+  return setmetatable(Module.new(), GELU)
+end
+
+function GELU:forward(input)
+  return input:gelu()
 end
 
 local Softmax = class("Softmax")
@@ -253,6 +274,7 @@ return {
   LeakyReLU = LeakyReLU,
   Sigmoid = Sigmoid,
   Tanh = Tanh,
+  GELU = GELU,
   Softmax = Softmax,
   LogSoftmax = LogSoftmax,
   Identity = Identity,

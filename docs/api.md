@@ -89,6 +89,29 @@ used normally in training. Unsupported expressions or a missing C compiler fall
 back to eager expression + reduction. `reduce.last_error` explains the
 fallback.
 
+`torch.fuse.linear(input, weight, bias?, activation?)` and
+`torch.fuse.conv2d(input, weight, bias?, options?)` fuse the bias and a single
+activation around ATen's existing `addmm`/`conv2d`:
+
+```lua
+local y = torch.fuse.linear(x, weight, bias, "relu")
+
+local y = torch.fuse.conv2d(input, weight, bias, {
+  activation = "gelu", stride = 1, padding = 1, dilation = 1, groups = 1,
+})
+```
+
+Supported activations are `"relu"`, `"gelu"`, `"sigmoid"`, `"tanh"` (and
+`nil`/`"none"`). `torch.fuse.conv2d` also accepts the activation directly as
+its fourth argument when the default stride/padding are sufficient. The
+activation is applied in place to the fresh output, so no extra activation
+temporary is allocated and autograd remains intact. The fused path requires
+2-D linear or 4-D NCHW convolution tensors with float32/float64; other ranks,
+dtypes, or a callable/module activation fall back to eager ATen.
+`torch.fuse.epilogue_stats` counts fused/fallback calls and
+`torch.fuse.epilogue_last_error()` reports native fallback errors. See
+[docs/fusion.md](fusion.md) for the measured speedups and their limits.
+
 ## Dtypes
 
 | Constant | String | Bytes |
@@ -263,7 +286,7 @@ Comparisons return Boolean tensors: `eq`, `ne`, `lt`, `le`, `gt`, `ge`
 Unary methods (each has an `_` in-place version):
 
 `neg abs exp log log1p sqrt rsqrt sin cos tan asin acos atan sinh cosh tanh
-sigmoid relu floor ceil round trunc sign square reciprocal`
+sigmoid relu gelu floor ceil round trunc sign square reciprocal`
 
 Plus:
 

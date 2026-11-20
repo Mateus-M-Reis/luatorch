@@ -854,6 +854,225 @@ FusedTrain.__tostring = function(self)
   return string.format("FusedTrain(%d kernels)", compiled)
 end
 
+-- Linear / convolution epilogues -------------------------------------------
+--
+-- These are deliberately small and concrete: the common inference/training
+-- pattern is addmm (or conv2d) with the bias already folded in, followed by a
+-- single activation.  The native helper applies the activation in place to the
+-- freshly produced output, so the fused path does not allocate an activation
+-- temporary and ATen still records the in-place autograd node.  Anything
+-- outside the supported envelope uses the eager expression below.
+
+local epilogue_activation_codes = {
+  none = 0,
+  identity = 0,
+  relu = 1,
+  gelu = 2,
+  sigmoid = 3,
+  tanh = 4,
+}
+
+local epilogue_stats = { fused = 0, fallback = 0 }
+local epilogue_last_error = nil
+
+local function normalize_epilogue_activation(value)
+  if value == nil or value == false then
+    return "none", 0
+  end
+  if type(value) == "string" then
+    local name = value:lower()
+    local code = epilogue_activation_codes[name]
+    if code ~= nil then
+      return name, code
+    end
+    return nil, nil, "unsupported epilogue activation '" .. value .. "'"
+  end
+  if type(value) == "function" then
+    return value, nil
+  end
+  if type(value) == "table" and type(value.forward) == "function" then
+    return value, nil
+  end
+  return nil, nil, "activation must be a string, function or module"
+end
+
+local function apply_eager_activation(output, activation, code)
+  if code == 0 then
+    return output
+  end
+  if type(activation) == "string" then
+    if activation == "gelu" then
+      return output:gelu()
+    end
+    local method = Tensor[activation]
+    if method == nil then
+      error("torch.fuse: unsupported activation '" .. activation .. "'", 0)
+    end
+    return method(output)
+  end
+  return activation(output)
+end
+
+local function eager_linear(input, weight, bias, activation, code)
+  local output
+  if bias ~= nil then
+    if input:dim() == 2 then
+      output = bias:addmm(input, weight:t())
+    else
+      output = input:matmul(weight:t()):add(bias)
+    end
+  else
+    output = input:matmul(weight:t())
+  end
+  return apply_eager_activation(output, activation, code)
+end
+
+local function epilogue_linear(input, weight, bias, activation)
+  local name, code, message = normalize_epilogue_activation(activation)
+  if message ~= nil then
+    error("torch.fuse.linear: " .. message, 3)
+  end
+  if bias == false then
+    bias = nil
+  end
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(weight) then
+    error("torch.fuse.linear expects input and weight tensors", 3)
+  end
+  if bias ~= nil and not Tensor.is_tensor(bias) then
+    error("torch.fuse.linear: bias must be a Tensor or nil", 3)
+  end
+
+  local dtype = input:dtype_id()
+  local fused = code ~= nil and
+    input:dim() == 2 and weight:dim() == 2 and
+    weight:dtype_id() == dtype and (dtype == 0 or dtype == 1)
+  if fused then
+    local input_sizes = input:sizes()
+    local weight_sizes = weight:sizes()
+    fused = input_sizes[2] == weight_sizes[2]
+    if fused and bias ~= nil then
+      local bias_sizes = bias:sizes()
+      fused = bias:dim() == 1 and bias_sizes[1] == weight_sizes[1] and
+        bias:dtype_id() == dtype
+    end
+  end
+
+  if fused then
+    local pointer = lib.lt_linear_epilogue(
+      input.h, weight.h, bias and bias.h or nil, code)
+    if pointer ~= nil then
+      epilogue_stats.fused = epilogue_stats.fused + 1
+      epilogue_last_error = nil
+      return Tensor._wrap(pointer)
+    end
+    epilogue_last_error = ffi.string(lib.lt_last_error())
+  end
+
+  epilogue_stats.fallback = epilogue_stats.fallback + 1
+  return eager_linear(input, weight, bias, name, code)
+end
+
+local function epilogue_pair(value, default, name)
+  if value == nil then
+    return default, default
+  end
+  if type(value) == "number" then
+    return value, value
+  end
+  if type(value) == "table" and #value == 2 then
+    return value[1], value[2]
+  end
+  error(name .. " must be a number or a {height, width} table", 3)
+end
+
+local function parse_conv_options(stride, padding, dilation, groups, activation)
+  if type(stride) == "function" or type(stride) == "string" or
+      (type(stride) == "table" and type(stride.forward) == "function") then
+    -- Shorthand: torch.fuse.conv2d(x, w, b, "relu") with default geometry.
+    return nil, padding, dilation, groups, stride
+  end
+  if type(stride) == "table" and type(stride[1]) ~= "number" then
+    local options = stride
+    return options.stride, options.padding, options.dilation,
+      options.groups, options.activation
+  end
+  return stride, padding, dilation, groups, activation
+end
+
+local function eager_conv2d(input, weight, bias, stride_h, stride_w,
+    pad_h, pad_w, dilation_h, dilation_w, groups, activation, code)
+  local bias_pointer = nil
+  if bias ~= nil then
+    bias_pointer = bias.h
+  end
+  local output = Tensor._wrap(lib.lt_conv2d(
+    input.h, weight.h, bias_pointer,
+    stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, groups))
+  return apply_eager_activation(output, activation, code)
+end
+
+local function epilogue_conv2d(input, weight, bias, stride, padding,
+    dilation, groups, activation)
+  stride, padding, dilation, groups, activation =
+    parse_conv_options(stride, padding, dilation, groups, activation)
+
+  local name, code, message = normalize_epilogue_activation(activation)
+  if message ~= nil then
+    error("torch.fuse.conv2d: " .. message, 3)
+  end
+  if bias == false then
+    bias = nil
+  end
+  if not Tensor.is_tensor(input) or not Tensor.is_tensor(weight) then
+    error("torch.fuse.conv2d expects input and weight tensors", 3)
+  end
+  if bias ~= nil and not Tensor.is_tensor(bias) then
+    error("torch.fuse.conv2d: bias must be a Tensor or nil", 3)
+  end
+  if groups == nil then
+    groups = 1
+  end
+  if type(groups) ~= "number" or groups < 1 or groups % 1 ~= 0 then
+    error("torch.fuse.conv2d: groups must be a positive integer", 3)
+  end
+
+  local stride_h, stride_w = epilogue_pair(stride, 1, "stride")
+  local pad_h, pad_w = epilogue_pair(padding, 0, "padding")
+  local dilation_h, dilation_w = epilogue_pair(dilation, 1, "dilation")
+
+  local dtype = input:dtype_id()
+  local fused = code ~= nil and
+    input:dim() == 4 and weight:dim() == 4 and
+    weight:dtype_id() == dtype and (dtype == 0 or dtype == 1)
+  if fused then
+    local input_sizes = input:sizes()
+    local weight_sizes = weight:sizes()
+    fused = input_sizes[2] == weight_sizes[2] * groups
+    if fused and bias ~= nil then
+      local bias_sizes = bias:sizes()
+      fused = bias:dim() == 1 and bias_sizes[1] == weight_sizes[1] and
+        bias:dtype_id() == dtype
+    end
+  end
+
+  if fused then
+    local pointer = lib.lt_conv2d_epilogue(
+      input.h, weight.h, bias and bias.h or nil,
+      stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w,
+      groups, code)
+    if pointer ~= nil then
+      epilogue_stats.fused = epilogue_stats.fused + 1
+      epilogue_last_error = nil
+      return Tensor._wrap(pointer)
+    end
+    epilogue_last_error = ffi.string(lib.lt_last_error())
+  end
+
+  epilogue_stats.fallback = epilogue_stats.fallback + 1
+  return eager_conv2d(input, weight, bias, stride_h, stride_w,
+    pad_h, pad_w, dilation_h, dilation_w, groups, name, code)
+end
+
 local function fuse(function_value, options)
   return Fused.new(function_value, options)
 end
@@ -868,6 +1087,12 @@ fuse_module.train = function(function_value, options)
 end
 fuse_module.reduce = function(function_value, reduction, options)
   return FusedReduce.new(function_value, reduction, options)
+end
+fuse_module.linear = epilogue_linear
+fuse_module.conv2d = epilogue_conv2d
+fuse_module.epilogue_stats = epilogue_stats
+fuse_module.epilogue_last_error = function()
+  return epilogue_last_error
 end
 
 return fuse_module

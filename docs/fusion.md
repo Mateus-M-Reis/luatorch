@@ -38,6 +38,10 @@ The tracer currently understands pure elementwise expressions:
   `clamp(min, max)`
 - method spellings: `x:add(y)`, `x:mul(2)`, `x:relu()`, `x:sigmoid()`, etc.
 
+Linear and convolution epilogues are separate, concrete entry points
+(`torch.fuse.linear` / `torch.fuse.conv2d`) described below; they do not go
+through the elementwise tracer.
+
 Tensor inputs must:
 
 - all be float32 or float64,
@@ -197,6 +201,87 @@ fast softmax-minus-onehot backward; class counts above 4096 fall back to ATen.
 The fast-math kernels live in `csrc/fast_ops.cpp`, compiled separately from the
 precise ATen shim.
 
+## Linear and convolution epilogues
+
+The most common layer pattern is a matrix multiply or convolution, a bias add,
+and one activation. `torch.fuse.linear` and `torch.fuse.conv2d` turn that pattern
+into a single call. The bias stays in ATen's `addmm`/`conv2d` (so it is folded
+into the existing GEMM/conv kernel), and the activation runs **in place** on the
+freshly produced output through a small native helper. No activation temporary
+is allocated, and the autograd graph still records the in-place node, so
+training works without a fallback:
+
+```lua
+-- x @ W^T + b, then relu
+local y = torch.fuse.linear(x, weight, bias, "relu")
+
+-- conv2d + bias, then GELU
+local y = torch.fuse.conv2d(input, weight, bias, {
+  activation = "gelu",
+  stride = 1,
+  padding = 1,
+  dilation = 1,
+  groups = 1,
+})
+
+-- The nn modules expose the same path as an option.
+local layer = nn.Linear(784, 256, { activation = "relu" })
+local conv = nn.Conv2d(3, 16, 3, { padding = 1, activation = "gelu" })
+```
+
+Supported activations are `"relu"`, `"gelu"` (exact, matching ATen's default),
+`"sigmoid"`, `"tanh"`, and `nil`/`"none"`/`"identity"`. `torch.fuse.conv2d`
+accepts the usual positional stride/padding/dilation/groups arguments or an
+options table as shown above; when the default geometry is enough, the
+activation can also be passed directly as the fourth argument
+(`torch.fuse.conv2d(x, w, b, "relu")`).
+
+Supported envelope:
+
+- `linear`: 2-D `float32`/`float64` input and weight; optional 1-D bias with one
+  value per output feature. Higher-rank inputs and other dtypes use eager ATen.
+- `conv2d`: 4-D NCHW `float32`/`float64` input and weight; optional 1-D bias with
+  one value per output channel; `groups` supported. Other ranks/dtypes use eager
+  ATen.
+- A callable or `nn.Module` activation is applied eagerly after the linear or
+  convolution, so custom activations keep working. Unknown activation strings
+  raise an error instead of silently changing semantics.
+- `torch.fuse.epilogue_stats` counts fused and eager-fallback calls, and
+  `torch.fuse.epilogue_last_error()` reports a native fallback message.
+
+This is an **epilogue over ATen's GEMM/conv**. It does not replace the GEMM or
+convolution microkernel, so the achievable speedup depends on how much of the
+layer is the activation pass. A 128×784 → 256 linear is GEMM-bound and is
+therefore a near-tie (and occasionally slower); convolution with a ReLU
+epilogue reaches about 1.2x because the output is larger relative to the
+convolution cost. The backward direction is ATen's normal backward through
+`addmm`/`conv2d` and the in-place activation node; no separate fused backward
+kernel is generated, so training speedups are smaller than forward-only gains.
+
+Measured on the same Ryzen 3 7320U, libtorch 2.5.1, float32, one thread,
+autograd disabled, best of 200 linear / 100 convolution iterations after ten
+warm-up calls:
+
+| workload | fused | eager addmm/conv + activation | speedup |
+| --- | ---: | ---: | ---: |
+| Linear 128×784→256 + relu | 0.953 ms | 0.961 ms | 1.01x |
+| Linear 128×784→256 + gelu | 1.067 ms | 1.068 ms | 1.00x |
+| Linear 128×784→256 + sigmoid | 0.973 ms | 0.980 ms | 1.01x |
+| Linear 128×784→256 + tanh | 1.129 ms | 0.986 ms | 0.87x |
+| Conv2d 8×3×32×32→16 + relu | 0.250 ms | 0.308 ms | 1.23x |
+| Conv2d 8×3×32×32→16 + gelu | 0.420 ms | 0.447 ms | 1.06x |
+| Conv2d 8×3×32×32→16 + sigmoid | 0.321 ms | 0.376 ms | 1.17x |
+| Conv2d 8×3×32×32→16 + tanh | 0.736 ms | 0.712 ms | 0.97x |
+
+The losses are real and are not hidden: the linear GEMM dominates, and the
+transcendental activations are close to parity or slower because the in-place
+ATen kernel is not uniformly faster than the out-of-place one (linear + tanh
+lost ~13% in this run). Repeated runs on this throttling CPU move the linear
+ratio by about ±10% and the convolution ratio by about ±10%. The reliable win in
+this envelope is convolution + ReLU (roughly 1.15–1.25x); treat the other rows as
+parity rather than a speed claim. Use `scripts/bench.sh` on the target machine
+for your own numbers.
+
 ## Fused training
 
 `torch.fuse.train(fn)` (also exposed as `torch.fuse_train`) compiles both
@@ -269,6 +354,12 @@ The eager function is called instead of the fused kernel when:
   return values,
 - C compilation fails (then the LuaJIT backend is tried; if that fails, eager).
 
+Epilogue helpers add their own fallback: a linear input that is not 2-D, a
+convolution input that is not 4-D NCHW, a dtype other than float32/float64, an
+unsupported bias shape, or a callable/module activation runs the eager
+`addmm`/`conv2d` + activation expression instead. Unknown activation strings are
+rejected up front.
+
 `fused.last_error` records the last tracing error and `fused.last_c_error` the
 last C compilation error, which helps when an expression unexpectedly falls back.
 
@@ -324,7 +415,9 @@ Caveats:
 
 - Fused reductions cover `sum`/`mean`/`logsumexp` with first-order backward;
   last-dimension `softmax`/`log_softmax` and cross-entropy (≤4096 classes) are
-  fused. Layernorm, convolution, and matmul epilogues are not fused yet.
+  fused. Layernorm is not fused. Linear/conv epilogues apply the activation
+  in-place over ATen's GEMM/conv, with the bias folded into ATen's
+  `addmm`/`conv2d`; they do not replace the GEMM or convolution microkernel.
 - Fused backward is first-order and C-backend only; second-order gradients and
   the LuaJIT-only fallback use eager autograd.
 - Transcendental functions (`exp`, `tanh`) call scalar libm; vectorised libmvec

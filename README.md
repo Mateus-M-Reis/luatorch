@@ -133,11 +133,12 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 > **0.10.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, fused reductions, and **303 tests**. The 0.10
-> additions are SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the
-> fused C backend, plus the 0.9 multi-layer/bidirectional RNN and LSTM with
-> dropout. CUDA and linear/conv epilogue fusion remain next
-> (see [ROADMAP.md](ROADMAP.md)).
+> first-order fused backward, fused reductions, **linear/conv epilogues**, and
+> **313 tests**. The 0.10 additions are SIMD-friendly polynomial
+> `exp`/`tanh`/`sigmoid` helpers in the fused C backend, GELU, and the
+> linear/conv bias+activation epilogue path. The 0.9 multi-layer/bidirectional
+> RNN and LSTM with dropout remain included. CUDA remains next (see
+> [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -203,7 +204,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 303 tests
+scripts/test.sh               # 313 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -250,11 +251,11 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Sorting | `sort`, `topk`, `unique`, `nonzero`, `gather`, `scatter` |
 | Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, `torch.linalg.*` |
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
-| Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
+| Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, ReLU/GELU/activations, losses, Sequential/ModuleList |
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
 | Data | TensorDataset, DataLoader, custom datasets, seeded shuffling, cooperative prefetch workers |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
-| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused last-dim softmax/log_softmax and cross-entropy, fused MSE/L1 losses, compile cache |
+| Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused last-dim softmax/log_softmax and cross-entropy, fused MSE/L1 losses, linear/conv bias+activation epilogues, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |
 
 ## How the fusion engine works
@@ -276,6 +277,9 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 6. Any unsupported operation or shape mismatch falls back to eager ATen;
    inference fusion and reductions also fall back when gradients are required.
    Correctness never depends on the tracer.
+7. `torch.fuse.linear` / `torch.fuse.conv2d` are direct epilogue paths: the
+   bias stays in ATen's `addmm`/`conv2d` and the activation runs in place on the
+   new output, avoiding the activation temporary while keeping autograd intact.
 
 See [docs/fusion.md](docs/fusion.md) for the API, supported operations, cache
 and fallback rules.
@@ -307,9 +311,12 @@ and fallback rules.
 
 - Fusion handles elementwise expressions, `sum`/`mean`/`logsumexp`
   reductions with first-order backward, `softmax`/`log_softmax` over arbitrary
-  dimensions, and cross-entropy for class counts up to 4096. Arbitrary-dimension
-  softmax moves the axis last and pays for a contiguous copy; the last-dimension
-  path avoids it.
+  dimensions, cross-entropy for class counts up to 4096, and linear/conv
+  bias+activation epilogues. The epilogues apply the activation in place over
+  ATen's GEMM/conv; they are not a replacement GEMM/conv microkernel, so the
+  linear speedup is near parity while convolution gains more.
+- Arbitrary-dimension softmax moves the axis last and pays for a contiguous
+  copy; the last-dimension path avoids it.
 - `torch.fuse.train` supports **first-order** derivatives and requires the C
   backend; higher-order gradients and the LuaJIT-only fallback use eager
   autograd.

@@ -10,6 +10,13 @@ All notable changes to luatorch are recorded here. The format follows
 - `DataLoader` cooperative Lua coroutine workers (`num_workers`), bounded
   `prefetch`, deterministic loader-local `seed`, explicit
   `iterator:close()`/`loader:close()`, and ordered worker-error propagation.
+- `torch.fuse.linear` / `torch.fuse.conv2d` epilogue paths that fuse the bias
+  and ReLU/GELU/sigmoid/tanh activation around ATen's existing
+  `addmm`/`conv2d`, apply the activation in place (no activation temporary),
+  preserve autograd, and fall back eagerly for unsupported shapes, dtypes, and
+  callable activations.
+- Exact `gelu` as a tensor op, a free function, `nn.functional.gelu`, and
+  `nn.GELU`; `nn.Linear` and `nn.Conv2d` accept an `activation` option.
 
 ### Changed
 
@@ -24,9 +31,9 @@ All notable changes to luatorch are recorded here. The format follows
 
 ### Tests
 
-- Expanded the dependency-free suite to 300 tests, including prefetch ordering
-  and bounds, exhausted epochs, worker errors, and seeded deterministic
-  shuffling across worker counts.
+- Expanded the dependency-free suite to 313 tests, including prefetch ordering
+  and bounds, exhausted epochs, worker errors, seeded deterministic shuffling
+  across worker counts, and epilogue correctness/autograd/fallback coverage.
 
 ## [0.10.0] — 2026-11-19
 

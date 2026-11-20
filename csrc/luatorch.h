@@ -214,6 +214,23 @@ lt_tensor* lt_conv2d(
     int64_t pad_h, int64_t pad_w,
     int64_t dilation_h, int64_t dilation_w,
     int64_t groups);
+
+/* Linear/convolution epilogues.  The matmul or convolution is ATen's own
+ * (bias included), and the activation is applied in-place to the freshly
+ * produced output, so no activation temporary is allocated and autograd stays
+ * intact through ATen's in-place wrappers.  `activation` is one of:
+ *   0 = none, 1 = relu, 2 = gelu (exact), 3 = sigmoid, 4 = tanh. */
+lt_tensor* lt_linear_epilogue(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int activation);
+lt_tensor* lt_conv2d_epilogue(
+    lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
+    int64_t stride_h, int64_t stride_w,
+    int64_t pad_h, int64_t pad_w,
+    int64_t dilation_h, int64_t dilation_w,
+    int64_t groups, int activation);
+
+lt_tensor* lt_gelu(lt_tensor* a, int inplace);
 lt_tensor* lt_conv_transpose2d(
     lt_tensor* input, lt_tensor* weight, const lt_tensor* bias,
     int64_t stride_h, int64_t stride_w,
