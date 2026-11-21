@@ -143,6 +143,22 @@ bench("slogdet 128x128 float32", 10, function()
   local sign, logabsdet = square:slogdet()
 end)
 
+local tall = torch.randn(256, 128)
+local tall_rhs = torch.randn(256)
+bench("lstsq 256x128 float32", 5, function()
+  local solution, residuals, rank, singular_values =
+    tall:lstsq(tall_rhs, { driver = "gelsd" })
+end, "gelsd")
+
+local lstsq_a = torch.randn(128, 64, { requires_grad = true })
+local lstsq_b = torch.randn(128, { requires_grad = true })
+bench("lstsq fwd+bwd 128x64 float32", 5, function()
+  local solution = lstsq_a:lstsq(lstsq_b, { driver = "gelsd" })
+  solution:sum():backward()
+  lstsq_a:zero_grad()
+  lstsq_b:zero_grad()
+end, "gelsd, includes zero_grad")
+
 -- per-call overhead -----------------------------------------------------
 local tiny = torch.randn(16)
 bench("small tensor add (16 elements)", 20000, function()
