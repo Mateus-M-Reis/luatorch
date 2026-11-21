@@ -102,6 +102,47 @@ bench("svd 128x128 float32", 5, function()
   local u, s, vh = square:svd(false)
 end)
 
+-- recent ops: einsum, float16, predicates, slogdet -----------------------
+local einsum_a = torch.randn(128, 128)
+local einsum_b = torch.randn(128, 128)
+bench("einsum ij,jk->ik 128x128", 20, function()
+  local c = torch.einsum("ij,jk->ik", einsum_a, einsum_b)
+end)
+
+local batched_a = torch.randn(8, 64, 64)
+local batched_b = torch.randn(8, 64, 64)
+bench("einsum batched 8x64x64", 10, function()
+  local c = torch.einsum("...ij,...jk->...ik", batched_a, batched_b)
+end)
+
+local grad_a = torch.randn(64, 64, { requires_grad = true })
+local grad_b = torch.randn(64, 64, { requires_grad = true })
+bench("einsum fwd+bwd 64x64", 10, function()
+  local out = torch.einsum("ij,jk->ik", grad_a, grad_b)
+  out:sum():backward()
+  grad_a:zero_grad()
+  grad_b:zero_grad()
+end, "includes zero_grad")
+
+local half_a = torch.randn(256, 256, { dtype = torch.float16 })
+local half_b = torch.randn(256, 256, { dtype = torch.float16 })
+bench("matmul 256x256 float16", 10, function()
+  local c = half_a:mm(half_b)
+end)
+
+local half_million = torch.randn(1000000, { dtype = torch.float16 })
+bench("add 1M float16", 20, function()
+  local c = half_million + half_million
+end)
+
+bench("isfinite 1M float32", 20, function()
+  local mask = torch.isfinite(million)
+end)
+
+bench("slogdet 128x128 float32", 10, function()
+  local sign, logabsdet = square:slogdet()
+end)
+
 -- per-call overhead -----------------------------------------------------
 local tiny = torch.randn(16)
 bench("small tensor add (16 elements)", 20000, function()
