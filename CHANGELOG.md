@@ -7,6 +7,14 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.14.0] — 2026-11-21
+
+### Added
+
+- `Tensor:take_along_dim(indices, dim)` with 1-based dims/indices;
+- `torch.linalg.vector_norm(a[, ord[, dim[, keepdim]]])`;
+- tests for gather-aligned selection and vector norm orders.
+
 ## [0.13.0] — 2026-11-21
 
 ### Added

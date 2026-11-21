@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.13.0"
+torch.VERSION = "0.14.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -697,6 +697,16 @@ torch.linalg = {
   cholesky = function(a, upper) return a:cholesky(upper) end,
   svd = function(a, full_matrices) return a:svd(full_matrices) end,
   qr = function(a, mode) return a:qr(mode) end,
+  vector_norm = function(a, ord, dim, keepdim)
+    if not Tensor.is_tensor(a) then
+      error("vector_norm expects a tensor", 3)
+    end
+    ord = ord == nil and 2 or ord
+    if type(ord) ~= "number" then
+      error("vector_norm ord must be a number", 3)
+    end
+    return a:norm(ord, dim, keepdim)
+  end,
   matrix_norm = function(a, ord)
     if not Tensor.is_tensor(a) or a:dim() ~= 2 then
       error("matrix_norm expects a 2-D tensor", 3)

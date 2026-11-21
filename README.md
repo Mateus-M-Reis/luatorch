@@ -131,9 +131,9 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.13.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.14.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, fused reductions, and **316 tests**. The 0.11
+> first-order fused backward, fused reductions, and **317 tests**. The 0.11
 > additions are cooperative `DataLoader` workers with bounded prefetch,
 > ordered error propagation, and explicit iterator cleanup, documented in
 > [docs/data.md](docs/data.md). The 0.10 SIMD-friendly polynomial
@@ -205,7 +205,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 316 tests
+scripts/test.sh               # 317 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```

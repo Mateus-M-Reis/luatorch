@@ -1,6 +1,5 @@
-# luatorch 0.13.0
+# luatorch 0.14.0
 
-- `torch.ger` outer-product alias;
-- `Tensor:quantile` with flat/dimension forms;
-- `torch.linalg.matrix_norm` for Frobenius, 1, -1, +inf, -inf;
-- 316 tests.
+- `Tensor:take_along_dim` with 1-based dims/indices;
+- `torch.linalg.vector_norm`;
+- 317 tests.

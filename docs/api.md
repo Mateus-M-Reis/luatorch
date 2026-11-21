@@ -1,4 +1,4 @@
-# luatorch API reference (0.13.0)
+# luatorch API reference (0.14.0)
 
 All examples assume:
 
@@ -229,6 +229,7 @@ t:scatter(dim, index, source)      -- out-of-place, 1-based index tensor
 t:nonzero()                        -- 1-based coordinates, shape (N, ndim)
 t:sort(dim?, descending?)          -- values, 1-based indices
 t:topk(k, dim?, largest?, sorted?) -- values, 1-based indices
+t:take_along_dim(indices, dim?)    -- gather along a dimension
 t:unique(sorted?, inverse?, counts?) -- values[, inverse, counts]; inverse is 1-based
 t:median(dim?)                    -- median value or dimension median
 t:quantile(q, dim?, keepdim?)     -- interpolated quantile
@@ -520,9 +521,10 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / median / quantile / bincount / histc / nonzero / gather / scatter / multinomial
 torch.ger(a, b)                  -- outer product of two vectors
 torch.linalg.matrix_norm(a, ord) -- fro, 1, -1, inf, -inf
+torch.linalg.vector_norm(a, ord?, dim?, keepdim?)
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
-torch.VERSION             -- luatorch version string ("0.13.0")
+torch.VERSION             -- luatorch version string ("0.14.0")
 torch.version             -- libtorch version string
 ```

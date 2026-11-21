@@ -784,6 +784,27 @@ function Tensor:gather(dim, index)
   return wrap(lib.lt_gather(self.h, self:_cdim(dim), zero_based.h))
 end
 
+function Tensor:take_along_dim(indices, dim)
+  if not is_tensor(indices) then
+    error("take_along_dim expects an integer Tensor", 3)
+  end
+  if indices:dtype() ~= "int64" and indices:dtype() ~= "int32" then
+    error("take_along_dim indices must be integer", 3)
+  end
+  local d = self:_cdim(dim)
+  if indices:dim() ~= self:dim() then
+    error("take_along_dim indices must have the same rank as input", 3)
+  end
+  local sizes = self:sizes()
+  local index_sizes = indices:sizes()
+  for axis = 1, #sizes do
+    if axis ~= d + 1 and sizes[axis] ~= index_sizes[axis] then
+      error("take_along_dim index size mismatch on axis " .. axis, 3)
+    end
+  end
+  return self:gather(dim, indices)
+end
+
 function Tensor:scatter(dim, index, source)
   if not is_tensor(index) or not is_tensor(source) then
     error("scatter expects index and source Tensors", 3)
