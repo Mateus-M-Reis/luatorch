@@ -543,6 +543,7 @@ torch.allclose(a, b, rtol?, atol?)
 torch.isnan(t)          -- bool tensor, true where the value is NaN
 torch.isinf(t)          -- bool tensor, true where the value is +/-Inf
 torch.isfinite(t)       -- bool tensor, true where neither NaN nor +/-Inf
+                        -- integer and bool inputs are always finite
 t:isnan()               -- method aliases
 t:isinf()
 t:isfinite()

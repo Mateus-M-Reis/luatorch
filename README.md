@@ -113,7 +113,8 @@ What the table actually says:
 `torch.from_blob(buffer, shape[, opts])` builds a zero-copy tensor over a LuaJIT
 FFI array or a Lua string; the tensor retains the backing buffer. FFI arrays are
 mutable and shared in both directions. String-backed tensors should be treated
-as read-only.
+as read-only. Every dtype is accepted, including `float16`, whose buffers store
+raw IEEE-754 binary16 elements (2 bytes each).
 
 ## Profiling
 

@@ -167,6 +167,7 @@ local files = {
   "test_einsum.lua",
   "test_float16.lua",
   "test_predicates.lua",
+  "test_docs.lua",
   "test_profiler.lua",
   "test_errors.lua",
 }
