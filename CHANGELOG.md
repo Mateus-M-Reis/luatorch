@@ -7,6 +7,14 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.16.0] — 2026-11-21
+
+### Added
+
+- `torch.linalg.cond` for 2, 1, inf, and Frobenius condition numbers;
+- `torch.linalg.matrix_rank` with an optional singular-value tolerance;
+- tests for identity, singular matrices, and rank thresholds.
+
 ## [0.15.0] — 2026-11-21
 
 ### Added

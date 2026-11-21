@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.15.0"
+torch.VERSION = "0.16.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -706,6 +706,44 @@ torch.linalg = {
       error("vector_norm ord must be a number", 3)
     end
     return a:norm(ord, dim, keepdim)
+  end,
+  cond = function(a, p)
+    if not Tensor.is_tensor(a) or a:dim() ~= 2 then
+      error("cond expects a 2-D tensor", 3)
+    end
+    p = p == nil and 2 or p
+    local _, singular = a:svd()
+    if p == 2 then return singular:max():item() / singular:min():item() end
+    local inverse = a:inverse()
+    if p == 1 then
+      return torch.linalg.matrix_norm(a, 1) * torch.linalg.matrix_norm(inverse, 1)
+    elseif p == math.huge then
+      return torch.linalg.matrix_norm(a, math.huge) *
+        torch.linalg.matrix_norm(inverse, math.huge)
+    elseif p == "fro" then
+      return torch.linalg.matrix_norm(a, "fro") *
+        torch.linalg.matrix_norm(inverse, "fro")
+    end
+    error("cond supports 2, 1, inf, and 'fro'", 3)
+  end,
+  matrix_rank = function(a, tol)
+    if not Tensor.is_tensor(a) or a:dim() ~= 2 then
+      error("matrix_rank expects a 2-D tensor", 3)
+    end
+    local _, singular = a:svd()
+    local values = singular:totable()
+    if tol == nil then
+      local largest = 0
+      for _, value in ipairs(values) do
+        if value > largest then largest = value end
+      end
+      tol = math.max(a:size(1), a:size(2)) * 2.220446049250313e-16 * largest
+    end
+    local rank = 0
+    for _, value in ipairs(values) do
+      if value > tol then rank = rank + 1 end
+    end
+    return rank
   end,
   matrix_norm = function(a, ord)
     if not Tensor.is_tensor(a) or a:dim() ~= 2 then

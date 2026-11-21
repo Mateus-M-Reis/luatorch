@@ -1,4 +1,5 @@
-# luatorch 0.15.0
+# luatorch 0.16.0
 
-- matrix_norm spectral orders 2 and -2;
-- 317 tests.
+- linalg.cond condition numbers;
+- linalg.matrix_rank with tolerance;
+- 318 tests.

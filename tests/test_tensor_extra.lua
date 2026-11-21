@@ -186,3 +186,13 @@ test("take_along_dim and vector_norm", function()
   assert_error(function() t:take_along_dim(torch.tensor({ {1} }, { dtype = torch.int64 }), 2) end,
     "take_along_dim")
 end)
+
+test("cond and matrix_rank", function()
+  local identity = torch.eye(2)
+  assert_near(torch.linalg.cond(identity), 1)
+  assert_near(torch.linalg.cond(identity, 1), 1)
+  assert_eq(torch.linalg.matrix_rank(identity), 2)
+  local singular = torch.tensor({ { 1, 0 }, { 0, 0 } })
+  assert_eq(torch.linalg.matrix_rank(singular), 1)
+  assert_near(torch.linalg.cond(singular), math.huge)
+end)
