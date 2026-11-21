@@ -1116,6 +1116,42 @@ function Tensor:solve(other)
   return wrap(lib.lt_linalg_solve(self.h, other.h))
 end
 
+local lstsq_drivers = {
+  gels = true,
+  gelsy = true,
+  gelsd = true,
+  gelss = true,
+}
+
+function Tensor:lstsq(other, opts)
+  if not is_tensor(other) then
+    error("lstsq expects a tensor right-hand side", 3)
+  end
+  if opts == nil then
+    opts = {}
+  elseif type(opts) ~= "table" then
+    error("lstsq options must be a table", 3)
+  end
+  local driver = opts.driver
+  if driver ~= nil and not lstsq_drivers[driver] then
+    error("lstsq driver must be one of gels, gelsy, gelsd, gelss", 3)
+  end
+  local rcond = opts.rcond
+  if rcond ~= nil and (type(rcond) ~= "number" or rcond < 0) then
+    error("lstsq rcond must be a non-negative number", 3)
+  end
+  local solution_pointer = ffi.new("lt_tensor*[1]")
+  local residuals_pointer = ffi.new("lt_tensor*[1]")
+  local rank_pointer = ffi.new("lt_tensor*[1]")
+  local singular_values_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_linalg_lstsq(self.h, other.h, driver,
+    rcond == nil and 0 or rcond, rcond == nil and 0 or 1,
+    solution_pointer, residuals_pointer, rank_pointer,
+    singular_values_pointer))
+  return wrap(solution_pointer[0]), wrap(residuals_pointer[0]),
+    wrap(rank_pointer[0]), wrap(singular_values_pointer[0])
+end
+
 function Tensor:cholesky(upper)
   return wrap(lib.lt_linalg_cholesky(self.h, upper and 1 or 0))
 end

@@ -2091,6 +2091,34 @@ int lt_linalg_slogdet(lt_tensor* a, lt_tensor** sign, lt_tensor** logabsdet) {
   LT_CATCH_INT
 }
 
+int lt_linalg_lstsq(lt_tensor* a, lt_tensor* b, const char* driver,
+                    double rcond, int has_rcond,
+                    lt_tensor** solution, lt_tensor** residuals,
+                    lt_tensor** rank, lt_tensor** singular_values) {
+  try {
+    clear_error();
+    if (solution == nullptr || residuals == nullptr || rank == nullptr ||
+        singular_values == nullptr) {
+      throw std::runtime_error("lstsq: null output pointer");
+    }
+    std::optional<double> rcond_option;
+    if (has_rcond != 0) {
+      rcond_option = rcond;
+    }
+    std::optional<c10::string_view> driver_option;
+    if (driver != nullptr) {
+      driver_option = c10::string_view(driver);
+    }
+    auto result = at::linalg_lstsq(a->t, b->t, rcond_option, driver_option);
+    *solution = wrap(std::get<0>(result));
+    *residuals = wrap(std::get<1>(result));
+    *rank = wrap(std::get<2>(result));
+    *singular_values = wrap(std::get<3>(result));
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
 lt_tensor* lt_linalg_solve(lt_tensor* a, lt_tensor* b) {
   try {
     clear_error();
