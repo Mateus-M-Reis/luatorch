@@ -5,16 +5,32 @@ All notable changes to luatorch are recorded here. The format follows
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.11.0] — 2026-11-21
+
 ### Added
 
 - `DataLoader` cooperative Lua coroutine workers (`num_workers`), bounded
   `prefetch`, deterministic loader-local `seed`, explicit
-  `iterator:close()`/`loader:close()`, and ordered worker-error propagation.
+  `iterator:close()`/`loader:close()`, and ordered worker-error propagation;
+- runnable `examples/dataloader.lua` covering batching, seeded shuffling,
+  prefetch, early close, `drop_last`, and empty datasets;
+- `docs/data.md` reference for the dataset protocol, loader options, iterator
+  lifecycle, worker model, and limits.
 
 ### Changed
 
 - `DataLoader:iter()` now returns a callable iterator object; existing
   `for ... in loader:iter()` and `loader:iter()()` usage is unchanged.
+
+### Fixed
+
+- `shuffle = true` on an empty dataset no longer crashes while building an
+  empty permutation;
+- with `num_workers = 0` and `prefetch > 0`, a look-ahead error now waits for
+  earlier prepared batches and is raised at its own batch position, matching
+  worker behavior.
 
 ### Documentation
 
@@ -24,9 +40,9 @@ All notable changes to luatorch are recorded here. The format follows
 
 ### Tests
 
-- Expanded the dependency-free suite to 300 tests, including prefetch ordering
-  and bounds, exhausted epochs, worker errors, and seeded deterministic
-  shuffling across worker counts.
+- 311 dependency-free tests, including `num_workers = 0` preparation, empty
+  datasets across option combinations, exhausted and closed iterators, repeated
+  close, and worker/collate error positions.
 
 ## [0.10.0] — 2026-11-19
 

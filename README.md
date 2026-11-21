@@ -131,13 +131,15 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.10.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.11.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, fused reductions, and **303 tests**. The 0.10
-> additions are SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the
-> fused C backend, plus the 0.9 multi-layer/bidirectional RNN and LSTM with
-> dropout. CUDA and linear/conv epilogue fusion remain next
-> (see [ROADMAP.md](ROADMAP.md)).
+> first-order fused backward, fused reductions, and **311 tests**. The 0.11
+> additions are cooperative `DataLoader` workers with bounded prefetch,
+> ordered error propagation, and explicit iterator cleanup, documented in
+> [docs/data.md](docs/data.md). The 0.10 SIMD-friendly polynomial
+> `exp`/`tanh`/`sigmoid` helpers and the 0.9 multi-layer/bidirectional RNN and
+> LSTM with dropout remain included. CUDA and linear/conv epilogue fusion
+> remain next (see [ROADMAP.md](ROADMAP.md)).
 
 ## Quick start
 
@@ -203,7 +205,7 @@ fast fusion backend; without it, fusion falls back to LuaJIT loops.
 ```bash
 scripts/fetch_libtorch.sh     # downloads ~170 MB into third_party/libtorch
 scripts/build.sh              # builds build/libluatorch.so
-scripts/test.sh               # 303 tests
+scripts/test.sh               # 311 tests
 scripts/bench.sh              # micro-benchmarks
 scripts/repl.sh               # interactive REPL
 ```
@@ -252,7 +254,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
 | Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |
-| Data | TensorDataset, DataLoader, custom datasets, seeded shuffling, cooperative prefetch workers |
+| Data | TensorDataset, DataLoader, custom datasets, seeded shuffling, bounded cooperative prefetch, ordered errors |
 | I/O | PyTorch-format single tensors; `nn.save`/`model:load` state dicts |
 | Fusion | Elementwise tracing, C JIT, LuaJIT fallback, `fused:into`, fused first-order backward, fused sum/mean/logsumexp reductions, fused last-dim softmax/log_softmax and cross-entropy, fused MSE/L1 losses, compile cache |
 | Functional | luafun bridge, `Tensor:iter/map/filter/reduce/apply` |

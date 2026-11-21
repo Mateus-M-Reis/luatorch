@@ -1,21 +1,34 @@
-# luatorch 0.10.0
+# luatorch 0.11.0
 
 LuaJIT tensor engine with an ATen backend and fusion compiler.
 
 ## Highlights
 
-- SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers in the fused C
-  backend;
-- `#pragma omp parallel for simd` on the elementwise kernel;
-- the 0.9 multi-layer/bidirectional RNN and LSTM stack remains included.
+- cooperative `DataLoader` workers (`num_workers`) and bounded `prefetch`;
+- deterministic loader-local shuffling with `seed`, independent of the global
+  `torch` RNG;
+- callable iterators with explicit `iterator:close()` and `loader:close()`;
+- ordered error propagation, including `num_workers = 0` look-ahead;
+- runnable `examples/dataloader.lua` and a full `docs/data.md` reference.
 
-## Accuracy and scope
+## DataLoader semantics
 
-The fast transcendental helpers are compiled into fused kernels only; eager
-ATen operations are unchanged. They are intended for float32/float64 inference
-and training paths where the existing fusion accuracy tolerances apply. `log`
-still uses the system libm implementation. Linear/conv epilogue fusion is not
-part of this release.
+Workers are Lua coroutines in the current Lua state, not OS threads or
+processes. They do not overlap with each other or with native ATen work, so
+`num_workers` is about API compatibility and isolating batch preparation rather
+than parallel speedup. At most `prefetch + 1` batches are held. An empty dataset
+produces zero batches even with `shuffle = true`. A seeded loader repeats the
+same order every epoch; without a seed, shuffling consumes the global RNG.
+
+Errors are raised when the failing batch position is reached, after earlier
+prepared batches, and close the iterator. `close()` is idempotent. See
+[docs/data.md](docs/data.md) for the full contract and limits.
+
+## Scope
+
+CUDA and linear/conv epilogue fusion are not part of this release. The 0.10
+SIMD-friendly polynomial `exp`/`tanh`/`sigmoid` helpers and the 0.9
+multi-layer/bidirectional RNN and LSTM support remain included.
 
 ## Requirements
 
@@ -31,11 +44,12 @@ scripts/fetch_libtorch.sh
 scripts/build.sh
 make install
 # or
-luarocks --lua-version=5.1 make luatorch-0.10.0-1.rockspec
+luarocks --lua-version=5.1 make luatorch-0.11.0-1.rockspec
 ```
 
 ## Verification
 
-- 303 dependency-free tests
-- GCC and Clang CI
-- LuaRocks install smoke test
+- 311 dependency-free tests (`scripts/test.sh`)
+- `examples/dataloader.lua` runs standalone
+- LuaRocks spec prepared; no tag, package, or release was published from this
+  change
