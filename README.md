@@ -299,6 +299,7 @@ and fallback rules.
 - [docs/fusion.md](docs/fusion.md) — fusion API, codegen, benchmark methodology
 - [docs/api.md](docs/api.md) — full Lua API
 - [docs/nn.md](docs/nn.md) — modules, losses, optimizers, data loading
+- [docs/data.md](docs/data.md) — DataLoader options, lifecycle, workers, limits
 - [docs/design.md](docs/design.md) — architecture and internals
 - [docs/torch7-compat.md](docs/torch7-compat.md) — Torch7 ⇄ luatorch, Moses → luafun
 - [ROADMAP.md](ROADMAP.md)

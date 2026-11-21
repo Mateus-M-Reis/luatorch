@@ -188,7 +188,7 @@ Design points:
 
 ## Testing
 
-`tests/run.lua` is a dependency-free harness. The 261 tests cover construction,
+`tests/run.lua` is a dependency-free harness. The suite covers construction,
 math, shape operations, reductions, autograd, luafun integration, serialization,
 printing, error paths, every built-in `nn` module/loss, the four optimizers, and
 an end-to-end XOR training run. Tests assert both values and metadata (shape/dtype),

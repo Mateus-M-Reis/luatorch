@@ -120,7 +120,9 @@ dilation accept a number or `{height, width}`.
 
 ## Data loading
 
-`torch.utils.data` ships an in-memory dataset and a batcher:
+`torch.utils.data` ships an in-memory dataset and a batcher. The full option,
+iterator-lifecycle, worker, and limit reference is in [docs/data.md](data.md).
+A quick example:
 
 ```lua
 local data = require("torch.utils.data")

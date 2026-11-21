@@ -326,6 +326,9 @@ torch.uniform_(t, low, high)
 
 ## Data loading
 
+`DataLoader` options, iterator lifecycle, worker semantics, and limits are
+documented in [docs/data.md](data.md).
+
 ```lua
 local data = require("torch.utils.data")   -- or torch.utils.data
 
