@@ -1,4 +1,18 @@
-# luatorch 0.19.0
+# luatorch 0.20.0
+
+- `torch.linalg.lstsq` / `Tensor:lstsq(b, opts?)` returns `solution`,
+  `residuals`, `rank`, and `singular_values` from `at::linalg_lstsq`;
+- supports the `gels`, `gelsy`, `gelsd`, and `gelss` drivers, `rcond` rank
+  truncation, batched and multiple right-hand sides, and autograd through the
+  solution;
+- six linalg tests cover the normal equations, driver outputs, batched and
+  underdetermined systems, `rcond` truncation, gradients, and error paths;
+- docs describe option, shape, residual, dtype, and driver behavior, with a
+  README example and an API alias guard;
+- benchmark entries for `lstsq` forward and forward+backward (no timing gate);
+- 407 tests.
+
+## luatorch 0.19.0
 
 - `torch.linalg.slogdet` / `Tensor:slogdet()` returns `sign` and `logabsdet`,
   supports batched square matrices, and differentiates through `logabsdet`;

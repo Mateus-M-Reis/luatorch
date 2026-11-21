@@ -3,7 +3,7 @@
 All notable changes to luatorch are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [0.20.0] — 2026-11-21
 
 ### Added
 
