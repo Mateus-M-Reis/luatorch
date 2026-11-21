@@ -467,6 +467,13 @@ function torch.isinf(t)
   return t:isinf()
 end
 
+function torch.isfinite(t)
+  if not Tensor.is_tensor(t) then
+    error("torch.isfinite expects a tensor", 2)
+  end
+  return t:isfinite()
+end
+
 -- neural-network primitives -------------------------------------------------
 
 local function as_pair(value, name)

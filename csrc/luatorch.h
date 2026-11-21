@@ -186,6 +186,7 @@ lt_tensor* lt_einsum(lt_tensor* const* tensors, int64_t n, const char* equation)
 /* ------------------------------------------------------------------ */
 lt_tensor* lt_isnan(const lt_tensor* t);
 lt_tensor* lt_isinf(const lt_tensor* t);
+lt_tensor* lt_isfinite(const lt_tensor* t);
 
 /* ------------------------------------------------------------------ */
 /* neural-network primitives                                          */

@@ -542,8 +542,10 @@ torch.allclose(a, b, rtol?, atol?)
 ```lua
 torch.isnan(t)          -- bool tensor, true where the value is NaN
 torch.isinf(t)          -- bool tensor, true where the value is +/-Inf
+torch.isfinite(t)       -- bool tensor, true where neither NaN nor +/-Inf
 t:isnan()               -- method aliases
 t:isinf()
+t:isfinite()
 ```
 
 The result has the same shape as the input. Float16/32/64 values are checked;
@@ -589,7 +591,7 @@ torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / median / quantile / bincount / histc / nonzero / gather / scatter / multinomial
 torch.ger(a, b)                  -- outer product of two vectors
 torch.einsum(equation, ...)      -- validated Einstein summation
-torch.isnan(t) / torch.isinf(t)  -- bool predicates (see above)
+torch.isnan(t) / torch.isinf(t) / torch.isfinite(t)  -- bool predicates
 torch.linalg.matrix_norm(a, ord) -- fro, 2, -2, 1, -1, inf, -inf
 torch.linalg.cond(a, p?)         -- 2, 1, inf, fro
 torch.linalg.matrix_rank(a, tol?)

@@ -128,6 +128,7 @@ lt_tensor* lt_fill(lt_tensor* a, double value, int inplace);
 /* NaN / Inf predicates */
 lt_tensor* lt_isnan(const lt_tensor* t);
 lt_tensor* lt_isinf(const lt_tensor* t);
+lt_tensor* lt_isfinite(const lt_tensor* t);
 
 /* linalg */
 lt_tensor* lt_matmul(lt_tensor* a, lt_tensor* b);

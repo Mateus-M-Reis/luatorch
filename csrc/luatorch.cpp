@@ -2053,6 +2053,14 @@ lt_tensor* lt_isinf(const lt_tensor* t) {
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_isfinite(const lt_tensor* t) {
+  try {
+    clear_error();
+    return wrap(at::isfinite(t->t));
+  }
+  LT_CATCH_NULL
+}
+
 lt_tensor* lt_linalg_inv(lt_tensor* a) {
   try {
     clear_error();

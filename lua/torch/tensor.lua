@@ -986,6 +986,10 @@ function Tensor:isinf()
   return wrap(lib.lt_isinf(self.h))
 end
 
+function Tensor:isfinite()
+  return wrap(lib.lt_isfinite(self.h))
+end
+
 local unary_fns = {
   neg = lib.lt_neg, abs = lib.lt_abs, exp = lib.lt_exp, log = lib.lt_log,
   log1p = lib.lt_log1p, sqrt = lib.lt_sqrt, rsqrt = lib.lt_rsqrt,
