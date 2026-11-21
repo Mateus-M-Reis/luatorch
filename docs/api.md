@@ -325,7 +325,9 @@ a:cholesky(upper?)  -- A = L L^T (or U^T U)
 a:svd(full_matrices?)  -- returns U, S, Vh
 a:qr(mode?)            -- returns Q, R; mode defaults to "reduced"
 
-torch.linalg.inv/det/slogdet/solve/cholesky/svd/qr   -- aliases
+torch.linalg.inv(a)      torch.linalg.det(a)      torch.linalg.slogdet(a)
+torch.linalg.solve(a, b) torch.linalg.cholesky(a) torch.linalg.svd(a)
+torch.linalg.qr(a)       -- aliases
 ```
 
 `slogdet` computes the signed log-determinant without forming the determinant,
@@ -513,6 +515,21 @@ local y = torch.no_grad(function()
   return (x * 2):sum()          -- does not build a graph
 end)
 ```
+
+Gradients keep the tensor dtype: a `float16` graph produces `float16`
+gradients, and casts promote the gradient back to the source dtype. `float16`
+autograd covers elementwise math, reductions, matmul and einsum, `nn.Linear`,
+the losses, softmax/log-softmax, and `where`/masked updates. CPU LAPACK
+operations (`inverse`, `det`, `slogdet`, `svd`, `cholesky`, `qr`) reject
+`float16` through ATen, and the custom optimizer kernels require float32 or
+float64 parameters; cast to float32 for those paths.
+
+`torch.einsum` is differentiable for every equation form -- implicit outputs,
+diagonals and traces, ellipses/batches, and scalar operands -- matching ATen's
+composite backward. `torch.isnan`, `torch.isinf`, and `torch.isfinite` return
+detached bool tensors that cannot be differentiated; use them to build masks
+for `where`, `masked_select`, or boolean indexing, where gradients flow only
+through the selected values.
 
 ## Functional utilities and luafun
 

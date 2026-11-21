@@ -54,3 +54,22 @@ test("rockspec modules resolve to source files", function()
   end
   assert_true(count >= 10, "rockspec module list looks truncated")
 end)
+
+test("documented linalg aliases exist", function()
+  local api = read("docs/api.md")
+  for _, name in ipairs({ "inv", "det", "slogdet", "solve", "cholesky", "svd",
+      "qr", "matrix_norm", "cond", "matrix_rank", "vector_norm" }) do
+    assert_true(api:find("torch.linalg." .. name, 1, true) ~= nil,
+      "docs/api.md does not mention torch.linalg." .. name)
+    assert_eq(type(torch.linalg[name]), "function",
+      "torch.linalg." .. name .. " is missing")
+  end
+end)
+
+test("predicate documentation matches integer and bool behavior", function()
+  local api = read("docs/api.md")
+  assert_true(api:find("integer and bool tensors produce all-true", 1, true) ~= nil,
+    "docs/api.md does not state that integer/bool predicates are all-true")
+  assert_true(api:find("all-false", 1, true) == nil,
+    "docs/api.md still claims all-false integer/bool masks")
+end)

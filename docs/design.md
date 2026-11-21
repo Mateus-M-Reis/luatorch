@@ -123,8 +123,8 @@ ATen is 0-based; the Lua API is 1-based. Conversions live exclusively in
   `unique`) use C out-parameters: the shim writes `lt_tensor*` handles and Lua
   wraps them with finalizers. This avoids tuple/FFI ABI tricks.
 - Linear algebra delegates to ATen/LAPACK (`linalg_inv`, `linalg_det`,
-  `linalg_solve`, `linalg_cholesky`, `linalg_svd`, `linalg_qr`), so dtypes and
-  errors match PyTorch.
+  `linalg_slogdet`, `linalg_solve`, `linalg_cholesky`, `linalg_svd`,
+  `linalg_qr`), so dtypes and errors match PyTorch.
 - `multinomial` samples 1-based categories for the same reason as `argmax`;
   uniform/normal/exponential/bernoulli updates are in-place and run through
   ATen's RNG.
