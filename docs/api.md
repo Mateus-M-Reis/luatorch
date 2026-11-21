@@ -342,12 +342,20 @@ torch.einsum("i,->i", v, scalar)            -- scalar operand
 ```
 
 Subscripts are ASCII letters; `...` broadcasts batch dimensions; whitespace is
-ignored. The Lua layer validates the equation grammar, operand count, ellipsis
-placement, and output labels before calling ATen. Rank and shape mismatches are
-reported by ATen, and gradients flow through einsum like any composite
-operation. An implicit output (no `->`) keeps labels that appear exactly once
-across the inputs, sorted alphabetically, and sums over labels that repeat --
-matching PyTorch.
+ignored. Empty subscripts denote 0-dim operands, so `",->"` multiplies two
+scalars and a label repeated within one operand takes its diagonal (`"ii->i"`,
+`"...ii->..."`). An output may contain `...` even when no input does; it then
+covers zero dimensions. The Lua layer validates the equation grammar, operand
+count, ellipsis placement, and output labels before calling ATen. Rank and
+shape mismatches are reported by ATen, and gradients flow through einsum like
+any composite operation. An implicit output (no `->`) keeps labels that appear
+exactly once across the inputs, sorted alphabetically, and sums over labels
+that repeat -- matching PyTorch.
+
+All operands must share exactly one dtype; mixed dtypes are rejected instead of
+implicitly promoted, matching PyTorch's einsum. Boolean operands are rejected
+because ATen has no boolean einsum kernels -- cast them to an integer or
+floating dtype first.
 
 ## Neural-network primitives
 

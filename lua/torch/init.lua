@@ -887,6 +887,18 @@ function torch.einsum(equation, ...)
       error("einsum expects tensor operands; operand " .. i .. " is " ..
         type(operands[i]), 3)
     end
+    if operands[i]:dtype() == "bool" then
+      error("einsum does not support bool operands; cast them to a numeric " ..
+        "dtype first", 3)
+    end
+  end
+  local first_dtype = operands[1]:dtype()
+  for i = 2, count do
+    if operands[i]:dtype() ~= first_dtype then
+      error(string.format(
+        "einsum expects operands with one dtype; operand 1 is %s but " ..
+        "operand %d is %s", first_dtype, i, operands[i]:dtype()), 3)
+    end
   end
   local normalized = normalize_einsum(equation, count)
   local array = ffi.new("lt_tensor*[?]", count)
