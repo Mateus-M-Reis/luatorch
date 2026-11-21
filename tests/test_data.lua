@@ -386,6 +386,238 @@ test("DataLoader shuffles empty datasets without crashing", function()
   end
 end)
 
+test("DataLoader num_workers=0 prepares in the calling coroutine", function()
+  local Dataset = data.Dataset
+  local Batched = setmetatable({}, { __index = Dataset })
+  Batched.__index = Batched
+
+  function Batched.new(count)
+    local self = setmetatable(Dataset.new(), Batched)
+    self.count = count
+    self.batch_calls = 0
+    self.get_calls = 0
+    return self
+  end
+
+  function Batched:size()
+    return self.count
+  end
+
+  function Batched:get()
+    self.get_calls = self.get_calls + 1
+    error("batch() should be preferred", 0)
+  end
+
+  function Batched:batch(indices)
+    self.batch_calls = self.batch_calls + 1
+    return torch.LongTensor(indices)
+  end
+
+  local dataset = Batched.new(8)
+  local loader = data.DataLoader(dataset,
+    { batch_size = 3, num_workers = 0, prefetch = 2 })
+  local iterator = loader:iter()
+
+  -- prefetch=2 fills batch 1 plus two successors before the first return.
+  assert_eq(iterator:next():totable(), { 1, 2, 3 })
+  assert_eq(dataset.batch_calls, 3)
+  assert_eq(dataset.get_calls, 0)
+  assert_eq(iterator():totable(), { 4, 5, 6 })
+  assert_eq(iterator():totable(), { 7, 8 })
+  assert_eq(iterator(), nil)
+  assert_eq(dataset.batch_calls, 3)
+  assert_eq(dataset.get_calls, 0)
+  assert_eq(next(loader._iterators), nil)
+end)
+
+test("DataLoader empty datasets stay inert across options", function()
+  local dataset = data.TensorDataset(torch.zeros(0, 2))
+  local configs = {
+    { batch_size = 4 },
+    { batch_size = 4, drop_last = true },
+    { batch_size = 1, shuffle = true, num_workers = 2, prefetch = 2 },
+    { batch_size = 4, shuffle = true, seed = 1, num_workers = 4, prefetch = 4 },
+  }
+
+  for _, options in ipairs(configs) do
+    local loader = data.DataLoader(dataset, options)
+    assert_eq(loader:num_batches(), 0, "empty dataset reported batches")
+    local iterator = loader:iter()
+    assert_eq(iterator(), nil)
+    iterator:close()
+    iterator:close()
+    loader:close()
+    loader:close()
+    assert_eq(next(loader._iterators), nil)
+  end
+end)
+
+test("DataLoader exhausted iterators are terminal", function()
+  local targets = torch.LongTensor(5)
+  for i = 1, 5 do
+    targets:set(i, i)
+  end
+  local loader = data.DataLoader(data.TensorDataset(targets), {
+    batch_size = 2, num_workers = 2, prefetch = 1,
+  })
+
+  local iterator = loader:iter()
+  local total = 0
+  local batches = 0
+  for batch in iterator do
+    batches = batches + 1
+    total = total + batch:sum():item()
+  end
+
+  assert_eq(batches, 3)
+  assert_eq(total, 15)
+  for _ = 1, 3 do
+    assert_eq(iterator(), nil)
+    assert_eq(iterator:next(), nil)
+  end
+  iterator:close()
+  iterator:close()
+  loader:close()
+  loader:close()
+  assert_eq(loader:num_batches(), 3)
+  assert_eq(next(loader._iterators), nil)
+end)
+
+test("DataLoader closes before start and every live iterator", function()
+  local Dataset = data.Dataset
+  local Counting = setmetatable({}, { __index = Dataset })
+  Counting.__index = Counting
+
+  function Counting.new(count)
+    local self = setmetatable(Dataset.new(), Counting)
+    self.count = count
+    self.gets = 0
+    return self
+  end
+
+  function Counting:size()
+    return self.count
+  end
+
+  function Counting:get(index)
+    self.gets = self.gets + 1
+    return torch.tensor(index)
+  end
+
+  local dataset = Counting.new(6)
+  local loader = data.DataLoader(dataset, { batch_size = 2 })
+
+  local fresh = loader:iter()
+  fresh:close()
+  assert_eq(fresh(), nil)
+  assert_eq(dataset.gets, 0, "close before start touched the dataset")
+
+  local first = loader:iter()
+  local second = loader:iter()
+  local third = loader:iter()
+  assert_eq(first():get(1), 1)
+  assert_eq(second():get(1), 1)
+  assert_eq(third():get(1), 1)
+  assert_eq(dataset.gets, 6)   -- three two-sample batches
+
+  loader:close()
+  loader:close()
+  assert_eq(first(), nil)
+  assert_eq(second(), nil)
+  assert_eq(third(), nil)
+  first:close()
+  second:close()
+  third:close()
+  assert_eq(next(loader._iterators), nil)
+end)
+
+test("DataLoader reports worker errors at later batch positions", function()
+  local Dataset = data.Dataset
+  local Boom = setmetatable({}, { __index = Dataset })
+  Boom.__index = Boom
+
+  function Boom.new(failing_index)
+    local self = setmetatable(Dataset.new(), Boom)
+    self.failing_index = failing_index
+    return self
+  end
+
+  function Boom:size()
+    return 6
+  end
+
+  function Boom:get(index)
+    if index == self.failing_index then
+      error("boom at " .. index, 0)
+    end
+    return torch.tensor(index)
+  end
+
+  local loader = data.DataLoader(Boom.new(4),
+    { batch_size = 1, num_workers = 2, prefetch = 4 })
+  local iterator = loader:iter()
+  assert_eq(iterator():get(1), 1)
+  assert_eq(iterator():get(1), 2)
+  assert_eq(iterator():get(1), 3)
+
+  local ok, err = pcall(iterator)
+  assert_false(ok)
+  assert_true(tostring(err):find("worker 2", 1, true) ~= nil,
+    "later worker error lacked the worker id")
+  assert_true(tostring(err):find("batch 4", 1, true) ~= nil,
+    "later worker error lacked the batch number")
+  assert_true(tostring(err):find("boom at 4", 1, true) ~= nil,
+    "later worker error was not preserved")
+  assert_eq(iterator(), nil)
+  assert_eq(next(loader._iterators), nil)
+end)
+
+test("DataLoader propagates batch() errors from workers", function()
+  local Dataset = data.Dataset
+  local BatchBoom = setmetatable({}, { __index = Dataset })
+  BatchBoom.__index = BatchBoom
+
+  function BatchBoom.new()
+    local self = setmetatable(Dataset.new(), BatchBoom)
+    self.get_calls = 0
+    return self
+  end
+
+  function BatchBoom:size()
+    return 4
+  end
+
+  function BatchBoom:get()
+    self.get_calls = self.get_calls + 1
+    error("get should not be called", 0)
+  end
+
+  function BatchBoom:batch(indices)
+    if indices[1] == 2 then
+      error("batch boom", 0)
+    end
+    return torch.LongTensor(indices)
+  end
+
+  local dataset = BatchBoom.new()
+  local loader = data.DataLoader(dataset,
+    { batch_size = 1, num_workers = 2, prefetch = 2 })
+  local iterator = loader:iter()
+  assert_eq(iterator():get(1), 1)
+
+  local ok, err = pcall(iterator)
+  assert_false(ok)
+  assert_true(tostring(err):find("worker", 1, true) ~= nil,
+    "batch() error lacked worker context")
+  assert_true(tostring(err):find("batch 2", 1, true) ~= nil,
+    "batch() error lacked the batch number")
+  assert_true(tostring(err):find("batch boom", 1, true) ~= nil,
+    "batch() error was not preserved")
+  assert_eq(dataset.get_calls, 0)
+  assert_eq(iterator(), nil)
+  assert_eq(next(loader._iterators), nil)
+end)
+
 test("DataLoader validates arguments", function()
   assert_error(function()
     data.DataLoader({}, {})
