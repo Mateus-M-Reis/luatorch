@@ -197,6 +197,7 @@ lt_tensor* lt_log_softmax(lt_tensor* a, int64_t dim);
 lt_tensor* lt_fused_log_softmax(lt_tensor* a);
 lt_tensor* lt_linalg_inv(lt_tensor* a);
 lt_tensor* lt_linalg_det(lt_tensor* a);
+int lt_linalg_slogdet(lt_tensor* a, lt_tensor** sign, lt_tensor** logabsdet);
 lt_tensor* lt_linalg_solve(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_linalg_cholesky(lt_tensor* a, int upper);
 int lt_linalg_svd(lt_tensor* a, int full_matrices,

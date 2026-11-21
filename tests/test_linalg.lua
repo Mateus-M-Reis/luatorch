@@ -106,3 +106,53 @@ test("linalg errors", function()
     torch.ones(2, 2):cholesky()
   end)
 end)
+
+test("slogdet sign and logabsdet", function()
+  local positive = float_matrix({ { 4, 7 }, { 2, 6 } })
+  local sign, logabsdet = positive:slogdet()
+  assert_dtype(sign, "float64")
+  assert_dtype(logabsdet, "float64")
+  assert_eq(sign:item(), 1)
+  assert_near(logabsdet:item(), math.log(10), 1e-12)
+  assert_near((sign * logabsdet:exp()):item(), positive:det():item(), 1e-10)
+
+  local negative = float_matrix({ { 1, 2 }, { 3, 4 } })
+  local negative_sign, negative_logabsdet = torch.linalg.slogdet(negative)
+  assert_eq(negative_sign:item(), -1)
+  assert_near(negative_logabsdet:item(), math.log(2), 1e-12)
+  assert_near((negative_sign * negative_logabsdet:exp()):item(),
+    negative:det():item(), 1e-12)
+end)
+
+test("slogdet handles batches and empty matrices", function()
+  local batch = torch.randn(3, 2, 2, { dtype = torch.float64 })
+  local sign, logabsdet = batch:slogdet()
+  assert_shape(sign, { 3 })
+  assert_shape(logabsdet, { 3 })
+  assert_near((sign * logabsdet:exp()):totable(), batch:det():totable(), 1e-9)
+
+  local empty_sign, empty_logabsdet = torch.zeros(0, 0,
+    { dtype = torch.float64 }):slogdet()
+  assert_eq(empty_sign:item(), 1)
+  assert_eq(empty_logabsdet:item(), 0)
+end)
+
+test("slogdet gradients flow through logabsdet", function()
+  local matrix = torch.tensor({ { 2, 1 }, { 1, 3 } },
+    { dtype = torch.float64, requires_grad = true })
+  local sign, logabsdet = matrix:slogdet()
+  assert_true(sign:requires_grad())
+  assert_true(logabsdet:requires_grad())
+  logabsdet:backward()
+  -- d log|det A| / dA = A^{-T}; A^{-1} = [[3, -1], [-1, 2]] / 5.
+  assert_near(matrix:grad():totable(), {
+    { 0.6, -0.2 },
+    { -0.2, 0.4 },
+  }, 1e-10)
+end)
+
+test("slogdet rejects non-square matrices", function()
+  assert_error(function()
+    torch.zeros(2, 3):slogdet()
+  end, "square")
+end)

@@ -1105,6 +1105,13 @@ function Tensor:det()
   return wrap(lib.lt_linalg_det(self.h))
 end
 
+function Tensor:slogdet()
+  local sign_pointer = ffi.new("lt_tensor*[1]")
+  local logabsdet_pointer = ffi.new("lt_tensor*[1]")
+  check(lib.lt_linalg_slogdet(self.h, sign_pointer, logabsdet_pointer))
+  return wrap(sign_pointer[0]), wrap(logabsdet_pointer[0])
+end
+
 function Tensor:solve(other)
   return wrap(lib.lt_linalg_solve(self.h, other.h))
 end

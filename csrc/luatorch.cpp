@@ -2077,6 +2077,20 @@ lt_tensor* lt_linalg_det(lt_tensor* a) {
   LT_CATCH_NULL
 }
 
+int lt_linalg_slogdet(lt_tensor* a, lt_tensor** sign, lt_tensor** logabsdet) {
+  try {
+    clear_error();
+    if (sign == nullptr || logabsdet == nullptr) {
+      throw std::runtime_error("slogdet: null output pointer");
+    }
+    auto result = at::linalg_slogdet(a->t);
+    *sign = wrap(std::get<0>(result));
+    *logabsdet = wrap(std::get<1>(result));
+    return 0;
+  }
+  LT_CATCH_INT
+}
+
 lt_tensor* lt_linalg_solve(lt_tensor* a, lt_tensor* b) {
   try {
     clear_error();

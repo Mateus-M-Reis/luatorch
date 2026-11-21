@@ -116,6 +116,19 @@ mutable and shared in both directions. String-backed tensors should be treated
 as read-only. Every dtype is accepted, including `float16`, whose buffers store
 raw IEEE-754 binary16 elements (2 bytes each).
 
+## Linear algebra
+
+`torch.linalg` wraps ATen's dense linear algebra. `slogdet` returns the sign and
+log-absolute determinant without forming the determinant, so it stays finite for
+very large or small magnitudes:
+
+```lua
+local a = torch.tensor({{2, 1}, {1, 3}}, {requires_grad = true})
+local sign, logabsdet = torch.linalg.slogdet(a)
+print(sign:item(), logabsdet:item())   -- 1, 1.6094379124341
+logabsdet:backward()                   -- gradient d log|det A| / dA = A^-T
+```
+
 ## Profiling
 
 `torch.profiler` optionally records per-tensor-method call counts and CPU time,

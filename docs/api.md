@@ -319,13 +319,20 @@ a:baddbmm(m1, m2, beta?, alpha?)  -- batched addmm
 ```lua
 a:inverse()
 a:det()
+a:slogdet()         -- returns sign, logabsdet; batched and differentiable
 a:solve(b)          -- solve a x = b (b may be a vector or matrix)
 a:cholesky(upper?)  -- A = L L^T (or U^T U)
 a:svd(full_matrices?)  -- returns U, S, Vh
 a:qr(mode?)            -- returns Q, R; mode defaults to "reduced"
 
-torch.linalg.inv/det/solve/cholesky/svd/qr   -- aliases
+torch.linalg.inv/det/slogdet/solve/cholesky/svd/qr   -- aliases
 ```
+
+`slogdet` computes the signed log-determinant without forming the determinant,
+so it stays finite for very large or small magnitudes. `sign` is `-1`, `0`, or
+`1`; `logabsdet` is real. For a square matrix `exp(logabsdet) * sign == det`,
+and gradients flow through `logabsdet` as `A^{-T}`. Batched inputs return
+`sign` and `logabsdet` with the batch dimensions; square matrices are required.
 
 ### Einstein summation
 
@@ -599,6 +606,7 @@ torch.linalg.matrix_norm(a, ord) -- fro, 2, -2, 1, -1, inf, -inf
 torch.linalg.cond(a, p?)         -- 2, 1, inf, fro
 torch.linalg.matrix_rank(a, tol?)
 torch.linalg.vector_norm(a, ord?, dim?, keepdim?)
+torch.linalg.slogdet(a)          -- returns sign, logabsdet
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
