@@ -549,8 +549,10 @@ t:isinf()
 t:isfinite()
 ```
 
-The result has the same shape as the input. Float16/32/64 values are checked;
-integer and bool tensors produce all-false masks, like PyTorch.
+The result has the same shape as the input and never participates in autograd:
+predicates return a detached bool tensor even when the input requires grad.
+Float16/32/64 values are checked; integer and bool tensors produce all-true
+masks, like PyTorch.
 
 ## Serialization
 

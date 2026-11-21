@@ -109,3 +109,32 @@ test("isfinite rejects non-tensors", function()
     torch.isfinite({ 1, 2 })
   end, "expects a tensor")
 end)
+
+test("predicates detach from autograd", function()
+  local x = torch.tensor({ nan, 1, math.huge }, { requires_grad = true })
+  for _, predicate in ipairs({ torch.isnan, torch.isinf, torch.isfinite }) do
+    local mask = predicate(x)
+    assert_dtype(mask, "bool")
+    assert_false(mask:requires_grad())
+    assert_error(function()
+      mask:sum():backward()
+    end, "does not require grad")
+  end
+  assert_true(x:requires_grad())
+  assert_eq(x:has_grad(), false)
+end)
+
+test("isfinite masks compose with autograd", function()
+  local x = torch.tensor({ 1, nan, math.huge, 4 },
+    { requires_grad = true })
+  local finite = torch.isfinite(x)
+  local safe = torch.where(finite, x, torch.zeros(4))
+  safe:sum():backward()
+  assert_tensor(x:grad(), { 1, 0, 0, 1 })
+
+  local y = torch.tensor({ 1, 0 / 0, 3 }, { requires_grad = true })
+  local selected = y[torch.isfinite(y)]
+  assert_tensor(selected, { 1, 3 })
+  selected:sum():backward()
+  assert_tensor(y:grad(), { 1, 0, 1 })
+end)
