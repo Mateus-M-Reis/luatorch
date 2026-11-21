@@ -1,8 +1,9 @@
-# luatorch 0.17.0
+# luatorch 0.18.0
 
-- `torch.einsum` with validated equations, scalar operands, ellipsis batching,
-  and autograd;
-- direct `float16` construction from Lua tables and scalars, plus printing
-  parity for values and `nan`/`inf`;
-- `torch.isnan` / `torch.isinf` and `Tensor:isnan` / `Tensor:isinf` bool masks;
-- 359 tests.
+- `torch.isfinite` / `Tensor:isfinite` bool masks, alongside `isnan`/`isinf`;
+- `torch.from_blob` accepts `float16` buffers with raw binary16 elements,
+  zero-copy, including strings, typed pointers, and shared mutation;
+- einsum hardening: clear mixed-dtype and bool-operand errors, plus coverage
+  for ellipsis, repeated labels, empty/scalar operands, and rank error paths;
+- documentation, rockspec, and version consistency guarded by a new test;
+- 382 tests.

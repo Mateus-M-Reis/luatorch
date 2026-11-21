@@ -7,6 +7,31 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.18.0] — 2026-11-21
+
+### Added
+
+- `torch.isfinite(t)` and `Tensor:isfinite()`, returning bool masks that are
+  true for every value that is neither NaN nor +/-Inf;
+- `float16` support in `torch.from_blob`, using raw IEEE-754 binary16 buffers
+  (`uint16_t` elements, 2 bytes each) without copying;
+- einsum edge coverage for ellipsis-only equations, ellipsis matching zero
+  dimensions, output ellipsis without input ellipsis, empty batches, 3-D
+  diagonals, repeated labels with ellipsis, and empty/scalar operands in every
+  position;
+- `tests/test_docs.lua` checks version consistency across the API reference,
+  rockspec, changelog, release notes, and README, and checks that rockspec
+  modules resolve to source files.
+
+### Changed
+
+- einsum rejects mixed operand dtypes and bool operands in the Lua layer with
+  a clear message; ATen previously raised `check_type` or `"bmm" not
+  implemented` errors. All operands must share one dtype, matching PyTorch;
+- `from_blob` distinguishes pointer cdata from arrays by FFI type instead of
+  equating an 8-byte object with a pointer, so arrays such as `float[2]` no
+  longer require `opts.nbytes`.
+
 ## [0.17.0] — 2026-11-21
 
 ### Added

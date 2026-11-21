@@ -58,12 +58,12 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [ ] More distributions: `poisson`, `geometric`, `cauchy`, tensor-weighted
   `normal`
 - [x] `mv`, `outer`, `addmm`, `baddbmm`
-- [x] `einsum`, `ger`
+- [x] `einsum` (including ellipsis, repeated-label, and empty/scalar edges), `ger`
 - [x] `logsumexp`
-- [x] NaN/Inf predicates (`torch.isnan`, `torch.isinf`)
+- [x] NaN/Inf predicates (`torch.isnan`, `torch.isinf`, `torch.isfinite`)
 - [ ] More reductions: `aminmax`, `median`, `quantile`
 - [x] Thread-count control (`torch.set_num_threads`)
-- [x] `float16` creation from Lua values and printing parity
+- [x] `float16` creation from Lua values, `from_blob` buffers, and printing parity
 
 ## v0.4 — fused execution (done)
 
@@ -102,7 +102,7 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 ## v0.6 — performance and ergonomics
 
 - [ ] Zero-copy tensor views where safe; avoid redundant `contiguous()` calls
-- [x] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers
+- [x] Direct `at::from_blob` wrappers for sharing memory with Lua strings/buffers, all dtypes
 - [x] Batched index-select kernel
 - [x] Fused optimizer updates (one C call per parameter instead of several ops)
 - [x] Profiling helpers (`torch.profiler`, per-method timing/counts)
