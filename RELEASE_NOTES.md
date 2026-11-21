@@ -1,5 +1,4 @@
-# luatorch 0.14.0
+# luatorch 0.15.0
 
-- `Tensor:take_along_dim` with 1-based dims/indices;
-- `torch.linalg.vector_norm`;
+- matrix_norm spectral orders 2 and -2;
 - 317 tests.

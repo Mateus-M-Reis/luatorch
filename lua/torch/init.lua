@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.14.0"
+torch.VERSION = "0.15.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -716,11 +716,16 @@ torch.linalg = {
     end
     local row_sums = a:abs():sum(2)
     local column_sums = a:abs():sum(1)
+    if ord == 2 or ord == -2 then
+      local _, singular_values = a:svd()
+      if ord == 2 then return singular_values:max():item() end
+      return singular_values:min():item()
+    end
     if ord == 1 then return column_sums:max():item() end
     if ord == -1 then return column_sums:min():item() end
     if ord == math.huge then return row_sums:max():item() end
     if ord == -math.huge then return row_sums:min():item() end
-    error("matrix_norm supports 'fro', 1, -1, inf, and -inf", 3)
+    error("matrix_norm supports 'fro', 2, -2, 1, -1, inf, and -inf", 3)
   end,
 }
 

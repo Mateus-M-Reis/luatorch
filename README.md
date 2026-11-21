@@ -131,7 +131,7 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.14.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.15.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
 > first-order fused backward, fused reductions, and **317 tests**. The 0.11
 > additions are cooperative `DataLoader` workers with bounded prefetch,

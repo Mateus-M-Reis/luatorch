@@ -1,4 +1,4 @@
-# luatorch API reference (0.14.0)
+# luatorch API reference (0.15.0)
 
 All examples assume:
 
@@ -520,11 +520,11 @@ torch.dtype_name(dtype)
 torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / median / quantile / bincount / histc / nonzero / gather / scatter / multinomial
 torch.ger(a, b)                  -- outer product of two vectors
-torch.linalg.matrix_norm(a, ord) -- fro, 1, -1, inf, -inf
+torch.linalg.matrix_norm(a, ord) -- fro, 2, -2, 1, -1, inf, -inf
 torch.linalg.vector_norm(a, ord?, dim?, keepdim?)
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
-torch.VERSION             -- luatorch version string ("0.14.0")
+torch.VERSION             -- luatorch version string ("0.15.0")
 torch.version             -- libtorch version string
 ```

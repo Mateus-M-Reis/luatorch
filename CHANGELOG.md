@@ -7,6 +7,14 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.15.0] — 2026-11-21
+
+### Added
+
+- `matrix_norm` orders `2` (largest singular value) and `-2` (smallest)
+  through the existing SVD path;
+- tests for spectral norms and unsupported orders.
+
 ## [0.14.0] — 2026-11-21
 
 ### Added
