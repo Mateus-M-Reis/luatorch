@@ -7,6 +7,36 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.19.0] — 2026-11-21
+
+### Added
+
+- `torch.linalg.slogdet` / `Tensor:slogdet()`, returning `sign` and
+  `logabsdet` from `at::linalg_slogdet`; supports batches, is differentiable
+  through `logabsdet`, and reports non-square inputs through ATen;
+- autograd coverage for einsum traces, diagonals, batched ellipses, implicit
+  outputs, scalar operands, explicit gradients, gradient accumulation, and
+  `no_grad`;
+- float16 autograd coverage: half-dtype gradients, cast round-trips, an
+  `nn.Linear` forward/backward pass, and manual parameter updates;
+- predicate autograd coverage: masks stay detached and compose with `where`
+  and boolean indexing without leaking gradients through masked values;
+- benchmark entries for einsum forward/backward, batched einsum, float16
+  matmul and add, `isfinite`, and `slogdet` (no timing gates).
+
+### Changed
+
+- docs describe float16 autograd support plus the CPU LAPACK and optimizer
+  dtype limitations;
+- documentation tests check that every documented `torch.linalg` alias exists
+  and that integer/bool predicate semantics stay all-true.
+
+### Fixed
+
+- corrected the `isfinite` documentation, which claimed integer and bool
+  tensors produce all-false masks; they produce all-true masks, matching
+  PyTorch and the implementation.
+
 ## [0.18.0] — 2026-11-21
 
 ### Added

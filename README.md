@@ -125,7 +125,7 @@ very large or small magnitudes:
 ```lua
 local a = torch.tensor({{2, 1}, {1, 3}}, {requires_grad = true})
 local sign, logabsdet = torch.linalg.slogdet(a)
-print(sign:item(), logabsdet:item())   -- 1, 1.6094379124341
+print(sign:item(), logabsdet:item())   -- 1, 1.6094379425049
 logabsdet:backward()                   -- gradient d log|det A| / dA = A^-T
 ```
 
@@ -145,10 +145,12 @@ See [docs/profiler.md](docs/profiler.md) for scope and limitations.
 
 ## Status
 
-> **0.18.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
+> **0.19.0 alpha**, CPU. Tensor core, autograd, I/O, luafun, `nn`/`optim`,
 > data loading, sorting/linalg, the fusion JIT, fused optimizer updates,
-> first-order fused backward, fused reductions, and **382 tests**. The 0.18
-> additions are `torch.isfinite`, zero-copy `float16` `from_blob` buffers,
+> first-order fused backward, fused reductions, and **401 tests**. The 0.19
+> additions are `torch.linalg.slogdet`, autograd coverage for einsum, float16,
+> and the detached NaN/Inf predicates, docs guards, and benchmark entries. The
+> 0.18 additions are `torch.isfinite`, zero-copy `float16` `from_blob` buffers,
 > and einsum edge/validation coverage. The 0.17 additions are validated
 > `torch.einsum`, direct `float16` construction and printing parity, and
 > `torch.isnan`/`torch.isinf` predicates. The 0.11 additions are cooperative
