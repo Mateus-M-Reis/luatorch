@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.12.0"
+torch.VERSION = "0.13.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -697,6 +697,21 @@ torch.linalg = {
   cholesky = function(a, upper) return a:cholesky(upper) end,
   svd = function(a, full_matrices) return a:svd(full_matrices) end,
   qr = function(a, mode) return a:qr(mode) end,
+  matrix_norm = function(a, ord)
+    if not Tensor.is_tensor(a) or a:dim() ~= 2 then
+      error("matrix_norm expects a 2-D tensor", 3)
+    end
+    if ord == nil or ord == "fro" then
+      return a:norm(2):item()
+    end
+    local row_sums = a:abs():sum(2)
+    local column_sums = a:abs():sum(1)
+    if ord == 1 then return column_sums:max():item() end
+    if ord == -1 then return column_sums:min():item() end
+    if ord == math.huge then return row_sums:max():item() end
+    if ord == -math.huge then return row_sums:min():item() end
+    error("matrix_norm supports 'fro', 1, -1, inf, and -inf", 3)
+  end,
 }
 
 function torch.mv(matrix, vector)
@@ -704,6 +719,15 @@ function torch.mv(matrix, vector)
 end
 
 function torch.outer(a, b)
+  return a:outer(b)
+end
+
+function torch.ger(a, b)
+  a = Tensor.is_tensor(a) and a or torch.tensor(a)
+  b = Tensor.is_tensor(b) and b or torch.tensor(b)
+  if a:dim() ~= 1 or b:dim() ~= 1 then
+    error("ger expects two 1-D tensors", 2)
+  end
   return a:outer(b)
 end
 

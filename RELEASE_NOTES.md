@@ -1,7 +1,6 @@
-# luatorch 0.12.0
+# luatorch 0.13.0
 
-- `Tensor:median` for flat and dimension medians;
-- `torch.bincount` with weights and minlength;
-- `torch.histc` with explicit bins/range;
-- empty `Tensor:totable()` returns an empty table;
-- 314 tests.
+- `torch.ger` outer-product alias;
+- `Tensor:quantile` with flat/dimension forms;
+- `torch.linalg.matrix_norm` for Frobenius, 1, -1, +inf, -inf;
+- 316 tests.

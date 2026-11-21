@@ -819,6 +819,36 @@ function Tensor:median(dim)
   return (values:get(lower) + values:get(upper)) / 2
 end
 
+function Tensor:quantile(q, dim, keepdim)
+  if type(q) ~= "number" or q ~= q or q < 0 or q > 1 then
+    error("quantile q must be a number in [0, 1]", 3)
+  end
+  if dim == nil then
+    local sorted = self:reshape(-1):sort()
+    local n = sorted:numel()
+    if n == 0 then error("quantile of an empty tensor", 3) end
+    local position = q * (n - 1) + 1
+    local lower = math.floor(position)
+    local upper = math.min(n, lower + 1)
+    local fraction = position - lower
+    local a = sorted:get(lower)
+    local b = sorted:get(upper)
+    return a + (b - a) * fraction
+  end
+  local sorted = self:sort(dim)
+  local n = sorted:size(dim)
+  if n == 0 then error("quantile of an empty tensor", 3) end
+  local position = q * (n - 1) + 1
+  local lower = math.floor(position)
+  local upper = math.min(n, lower + 1)
+  local fraction = position - lower
+  local a = sorted:narrow(dim, lower, 1)
+  local b = sorted:narrow(dim, upper, 1)
+  local value = a:mul(1 - fraction):add(b:mul(fraction))
+  if not keepdim then value = value:squeeze(dim) end
+  return value
+end
+
 function Tensor:topk(k, dim, largest, sorted_flag)
   if largest == nil then largest = true end
   if sorted_flag == nil then sorted_flag = true end

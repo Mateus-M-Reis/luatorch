@@ -7,6 +7,15 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.13.0] — 2026-11-21
+
+### Added
+
+- `torch.ger` outer-product alias with 1-D validation;
+- `Tensor:quantile(q[, dim[, keepdim]])` with linear interpolation;
+- `torch.linalg.matrix_norm` for Frobenius, 1, -1, +inf, and -inf norms;
+- tests for quantile, outer products, and matrix norm orders.
+
 ## [0.12.0] — 2026-11-21
 
 ### Added
