@@ -378,9 +378,6 @@ function Tensor.from_blob(buffer, shape, opts)
   end
   local dtype = resolve_dtype(opts.dtype)
   if dtype == nil then dtype = 0 end
-  if dtype == 8 then
-    error("from_blob does not support float16", 3)
-  end
   local count = 1
   for _, value in ipairs(shape) do
     if type(value) ~= "number" or value % 1 ~= 0 or value < 0 then
@@ -393,13 +390,12 @@ function Tensor.from_blob(buffer, shape, opts)
   local available
   if type(buffer) == "string" then
     available = #buffer
+  elseif tostring(ffi.typeof(buffer)):match("%*%s*>$") then
+    -- A typed pointer carries no size; callers must supply opts.nbytes.
+    available = tonumber(opts.nbytes)
   else
     local ok, bytes = pcall(ffi.sizeof, buffer)
-    if ok and bytes ~= ffi.sizeof("void*") then
-      available = bytes
-    else
-      available = tonumber(opts.nbytes)
-    end
+    available = ok and bytes or tonumber(opts.nbytes)
   end
   if available == nil or available < needed then
     error(string.format(

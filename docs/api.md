@@ -123,9 +123,9 @@ torch.HalfTensor({1.5, -2.25})
 ```
 
 Printing includes the `dtype=torch.float16` suffix and renders `inf`/`-inf`/
-`nan` like the other floating dtypes. `torch.from_blob` still rejects `float16`
-buffers; create a float32 tensor from the buffer and cast with
-`:to(torch.float16)`.
+`nan` like the other floating dtypes. `torch.from_blob` also accepts raw
+IEEE-754 binary16 elements, so a `uint16_t` buffer can back a `float16` tensor
+without a copy.
 
 ## Creation
 
@@ -172,7 +172,20 @@ t:set(1, 1, 9)       -- buffer[0] is now 9
 
 `shape` is a table of dimensions. `opts.dtype` defaults to `float32`.
 Array cdata sizes are checked with `ffi.sizeof`; pointer cdata must provide
-`opts.nbytes`. `opts.requires_grad` is honored. `float16` is not supported.
+`opts.nbytes`. `opts.requires_grad` is honored.
+
+All dtypes are supported, including `float16`. Half-precision buffers contain
+raw IEEE-754 binary16 elements (2 bytes each), for example a `uint16_t` array
+of bit patterns; LuaJIT's `ffi.new("float[...]")` buffer only matches
+`dtype = "float32"`. Use `:to(torch.float32)` to read half values as Lua
+numbers:
+
+```lua
+local bits = ffi.new("uint16_t[4]", { 0x3C00, 0x4000, 0x4200, 0x3800 })
+local h = torch.from_blob(bits, { 2, 2 }, { dtype = torch.float16 })
+print(h:to(torch.float32))  -- values 1, 2, 3, 0.5
+bits[0] = 0x4000            -- h:get(1, 1) is now 2
+```
 
 ### Torch7-style constructors
 
