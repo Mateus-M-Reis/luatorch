@@ -179,6 +179,13 @@ lt_tensor* lt_matmul(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_mm(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_bmm(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b);
+lt_tensor* lt_einsum(lt_tensor* const* tensors, int64_t n, const char* equation);
+
+/* ------------------------------------------------------------------ */
+/* NaN / Inf predicates; results are bool tensors                     */
+/* ------------------------------------------------------------------ */
+lt_tensor* lt_isnan(const lt_tensor* t);
+lt_tensor* lt_isinf(const lt_tensor* t);
 
 /* ------------------------------------------------------------------ */
 /* neural-network primitives                                          */

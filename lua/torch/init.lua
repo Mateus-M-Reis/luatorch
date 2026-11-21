@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.16.0"
+torch.VERSION = "0.17.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -451,6 +451,22 @@ function torch.allclose(a, b, rtol, atol)
   return a:allclose(b, rtol, atol)
 end
 
+-- NaN / Inf predicates -------------------------------------------------------
+
+function torch.isnan(t)
+  if not Tensor.is_tensor(t) then
+    error("torch.isnan expects a tensor", 2)
+  end
+  return t:isnan()
+end
+
+function torch.isinf(t)
+  if not Tensor.is_tensor(t) then
+    error("torch.isinf expects a tensor", 2)
+  end
+  return t:isinf()
+end
+
 -- neural-network primitives -------------------------------------------------
 
 local function as_pair(value, name)
@@ -782,6 +798,102 @@ function torch.ger(a, b)
     error("ger expects two 1-D tensors", 2)
   end
   return a:outer(b)
+end
+
+-- Einstein summation ---------------------------------------------------------
+
+-- ATen parses the equation again and remains the authority on rank/shape
+-- errors; this pre-pass rejects malformed equations and operand-count
+-- mismatches with Lua-level messages before crossing the FFI boundary.
+local function check_einsum_subscript(subscript, what)
+  local i, ellipses = 1, 0
+  while i <= #subscript do
+    local ch = subscript:sub(i, i)
+    if ch == "." then
+      if subscript:sub(i, i + 2) ~= "..." then
+        error("einsum: invalid '.' in " .. what ..
+          " (use '...' for an ellipsis)", 3)
+      end
+      ellipses = ellipses + 1
+      if ellipses > 1 then
+        error("einsum: more than one ellipsis in " .. what, 3)
+      end
+      i = i + 3
+    elseif ch:match("[a-zA-Z]") then
+      i = i + 1
+    else
+      error("einsum: invalid character '" .. ch .. "' in " .. what ..
+        " (subscripts must be letters)", 3)
+    end
+  end
+end
+
+local function normalize_einsum(equation, operand_count)
+  local compact = equation:gsub("%s+", "")
+  local arrow = compact:find("->", 1, true)
+  local input, output = compact, nil
+  if arrow then
+    input = compact:sub(1, arrow - 1)
+    output = compact:sub(arrow + 2)
+    if output:find("->", 1, true) then
+      error("einsum: equation contains more than one '->'", 3)
+    end
+  end
+  local terms = {}
+  for term in (input .. ","):gmatch("(.-),") do
+    terms[#terms + 1] = term
+  end
+  if #terms ~= operand_count then
+    error(string.format(
+      "einsum: equation describes %d operand(s) but %d tensor(s) were given",
+      #terms, operand_count), 3)
+  end
+  local available = {}
+  for i, term in ipairs(terms) do
+    check_einsum_subscript(term, "operand " .. i)
+    for ch in term:gmatch("[a-zA-Z]") do
+      available[ch] = true
+    end
+  end
+  if output then
+    check_einsum_subscript(output, "the output")
+    local seen = {}
+    for ch in output:gmatch("[a-zA-Z]") do
+      if seen[ch] then
+        error("einsum: output subscript '" .. ch ..
+          "' appears more than once", 3)
+      end
+      seen[ch] = true
+      if not available[ch] then
+        error("einsum: output subscript '" .. ch ..
+          "' does not appear in any input operand", 3)
+      end
+    end
+  end
+  return compact
+end
+
+function torch.einsum(equation, ...)
+  if type(equation) ~= "string" then
+    error("torch.einsum expects the equation string as its first argument", 2)
+  end
+  local count = select("#", ...)
+  if count == 0 then
+    error("torch.einsum expects at least one tensor operand", 2)
+  end
+  local operands = { ... }
+  for i = 1, count do
+    if not Tensor.is_tensor(operands[i]) then
+      error("einsum expects tensor operands; operand " .. i .. " is " ..
+        type(operands[i]), 3)
+    end
+  end
+  local normalized = normalize_einsum(equation, count)
+  local array = ffi.new("lt_tensor*[?]", count)
+  for i = 1, count do
+    array[i - 1] = operands[i].h
+  end
+  return Tensor._wrap(lib.lt_einsum(array, count, normalized))
 end
 
 function torch.addmm(input, mat1, mat2, beta, alpha)

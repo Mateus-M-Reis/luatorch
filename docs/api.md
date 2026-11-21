@@ -1,4 +1,4 @@
-# luatorch API reference (0.16.0)
+# luatorch API reference (0.17.0)
 
 All examples assume:
 
@@ -111,8 +111,21 @@ torch.tensor({1, 2, 3}, {dtype = torch.int64})
 torch.LongTensor({1, 2, 3})
 ```
 
-`float16` cannot be built directly from Lua tables; build a float32 tensor and
-cast: `torch.tensor({1.5}):to(torch.float16)`.
+`float16` values can be created directly from Lua tables and scalars (including
+`torch.HalfTensor{...}`). Construction stages a float32 tensor and lets ATen
+perform the conversion, so values use IEEE round-to-nearest-even and overflow
+becomes `inf`:
+
+```lua
+torch.tensor({1.5, 2.5}, {dtype = torch.float16})
+torch.tensor(1.5, {dtype = torch.float16})
+torch.HalfTensor({1.5, -2.25})
+```
+
+Printing includes the `dtype=torch.float16` suffix and renders `inf`/`-inf`/
+`nan` like the other floating dtypes. `torch.from_blob` still rejects `float16`
+buffers; create a float32 tensor from the buffer and cast with
+`:to(torch.float16)`.
 
 ## Creation
 
@@ -301,6 +314,28 @@ a:qr(mode?)            -- returns Q, R; mode defaults to "reduced"
 torch.linalg.inv/det/solve/cholesky/svd/qr   -- aliases
 ```
 
+### Einstein summation
+
+`torch.einsum(equation, ...)` computes arbitrary products and reductions:
+
+```lua
+torch.einsum("ij,jk->ik", a, b)             -- matrix multiply
+torch.einsum("ij,jk", a, b)                 -- implicit output
+torch.einsum("...ij,...jk->...ik", a, b)    -- batched matmul
+torch.einsum("ij->ji", a)                   -- transpose
+torch.einsum("ii->i", a)                    -- diagonal
+torch.einsum("ij->", a)                     -- sum every element
+torch.einsum("i,->i", v, scalar)            -- scalar operand
+```
+
+Subscripts are ASCII letters; `...` broadcasts batch dimensions; whitespace is
+ignored. The Lua layer validates the equation grammar, operand count, ellipsis
+placement, and output labels before calling ATen. Rank and shape mismatches are
+reported by ATen, and gradients flow through einsum like any composite
+operation. An implicit output (no `->`) keeps labels that appear exactly once
+across the inputs, sorted alphabetically, and sums over labels that repeat --
+matching PyTorch.
+
 ## Neural-network primitives
 
 These back `torch.nn`; they are also useful when writing custom layers.
@@ -481,6 +516,18 @@ torch.equal(a, b)
 torch.allclose(a, b, rtol?, atol?)
 ```
 
+## NaN and Inf predicates
+
+```lua
+torch.isnan(t)          -- bool tensor, true where the value is NaN
+torch.isinf(t)          -- bool tensor, true where the value is +/-Inf
+t:isnan()               -- method aliases
+t:isinf()
+```
+
+The result has the same shape as the input. Float16/32/64 values are checked;
+integer and bool tensors produce all-false masks, like PyTorch.
+
 ## Serialization
 
 ```lua
@@ -520,6 +567,8 @@ torch.dtype_name(dtype)
 torch.get_num_threads() / torch.set_num_threads(n)
 torch.sort / topk / unique / median / quantile / bincount / histc / nonzero / gather / scatter / multinomial
 torch.ger(a, b)                  -- outer product of two vectors
+torch.einsum(equation, ...)      -- validated Einstein summation
+torch.isnan(t) / torch.isinf(t)  -- bool predicates (see above)
 torch.linalg.matrix_norm(a, ord) -- fro, 2, -2, 1, -1, inf, -inf
 torch.linalg.cond(a, p?)         -- 2, 1, inf, fro
 torch.linalg.matrix_rank(a, tol?)
@@ -527,6 +576,6 @@ torch.linalg.vector_norm(a, ord?, dim?, keepdim?)
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
-torch.VERSION             -- luatorch version string ("0.16.0")
+torch.VERSION             -- luatorch version string ("0.17.0")
 torch.version             -- libtorch version string
 ```

@@ -2014,6 +2014,45 @@ lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b) {
   LT_CATCH_NULL
 }
 
+lt_tensor* lt_einsum(lt_tensor* const* tensors, int64_t n, const char* equation) {
+  try {
+    clear_error();
+    if (equation == nullptr) {
+      throw std::runtime_error("einsum: equation must be a string");
+    }
+    if (n <= 0 || tensors == nullptr) {
+      throw std::runtime_error("einsum: at least one operand tensor is required");
+    }
+    std::vector<at::Tensor> operands;
+    operands.reserve(static_cast<size_t>(n));
+    for (int64_t i = 0; i < n; ++i) {
+      if (tensors[i] == nullptr) {
+        throw std::runtime_error(
+            "einsum: null operand tensor at position " + std::to_string(i));
+      }
+      operands.push_back(tensors[i]->t);
+    }
+    return wrap(at::einsum(equation, operands));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_isnan(const lt_tensor* t) {
+  try {
+    clear_error();
+    return wrap(at::isnan(t->t));
+  }
+  LT_CATCH_NULL
+}
+
+lt_tensor* lt_isinf(const lt_tensor* t) {
+  try {
+    clear_error();
+    return wrap(at::isinf(t->t));
+  }
+  LT_CATCH_NULL
+}
+
 lt_tensor* lt_linalg_inv(lt_tensor* a) {
   try {
     clear_error();

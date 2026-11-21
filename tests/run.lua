@@ -164,6 +164,9 @@ local files = {
   "test_luafun.lua",
   "test_io.lua",
   "test_print.lua",
+  "test_einsum.lua",
+  "test_float16.lua",
+  "test_predicates.lua",
   "test_profiler.lua",
   "test_errors.lua",
 }

@@ -298,6 +298,14 @@ local function infer_dtype(values)
   return saw_boolean and 7 or 0
 end
 
+-- ATen owns the IEEE-754 half conversion (round-to-nearest-even, overflow to
+-- infinity), so a float16 tensor built from Lua values is staged as float32 and
+-- cast natively.  Lua never encodes half bits itself.
+local function cast_float16(tensor, opts)
+  local half = wrap(lib.lt_to_dtype(tensor.h, 8))
+  return apply_requires_grad(half, opts)
+end
+
 local function from_flat(flat, shape, opts)
   opts = opts or {}
   check_device(opts)
@@ -306,8 +314,7 @@ local function from_flat(flat, shape, opts)
     dtype = infer_dtype(flat)
   end
   if dtype == 8 then
-    error("float16 tensors cannot be created from Lua tables; create a float32 " ..
-      "tensor and cast with :to(torch.float16)", 3)
+    return cast_float16(from_flat(flat, shape, { dtype = 0 }), opts)
   end
   local ctype = ctypes[dtype]
   local n = #flat
@@ -344,7 +351,7 @@ local function from_scalar(value, opts)
     dtype = type(value) == "boolean" and 7 or 0
   end
   if dtype == 8 then
-    error("float16 scalars cannot be created directly; cast with :to(torch.float16)", 3)
+    return cast_float16(from_scalar(value, { dtype = 0 }), opts)
   end
   local ctype = ctypes[dtype]
   local buffer = ffi.new(ctype .. "[1]")
@@ -972,6 +979,15 @@ end
 
 function Tensor:logical_not()
   return wrap(lib.lt_logical_not(self.h))
+end
+
+-- NaN / Inf predicates; the result is a bool tensor shaped like the input.
+function Tensor:isnan()
+  return wrap(lib.lt_isnan(self.h))
+end
+
+function Tensor:isinf()
+  return wrap(lib.lt_isinf(self.h))
 end
 
 local unary_fns = {

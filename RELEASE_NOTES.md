@@ -1,5 +1,8 @@
-# luatorch 0.16.0
+# luatorch 0.17.0
 
-- linalg.cond condition numbers;
-- linalg.matrix_rank with tolerance;
-- 318 tests.
+- `torch.einsum` with validated equations, scalar operands, ellipsis batching,
+  and autograd;
+- direct `float16` construction from Lua tables and scalars, plus printing
+  parity for values and `nan`/`inf`;
+- `torch.isnan` / `torch.isinf` and `Tensor:isnan` / `Tensor:isinf` bool masks;
+- 359 tests.

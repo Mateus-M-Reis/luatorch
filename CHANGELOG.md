@@ -7,6 +7,26 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.17.0] — 2026-11-21
+
+### Added
+
+- `torch.einsum(equation, ...)` backed by `at::einsum`, with a Lua-side
+  validation pass for operand counts, subscripts, ellipses, and output labels;
+- `torch.isnan(t)` / `torch.isinf(t)` and `Tensor:isnan()` / `Tensor:isinf()`,
+  returning bool tensors (float16/32/64 are checked; integer and bool inputs
+  are always false);
+- direct `float16` construction from Lua tables and scalars via
+  `torch.tensor(..., {dtype = torch.float16})` and `torch.HalfTensor{...}`;
+- tests for einsum equations, errors, and autograd; float16 creation,
+  rounding, and printing; and the NaN/Inf predicates.
+
+### Changed
+
+- `float16` tensors are now staged as float32 and converted by ATen, which
+  applies IEEE round-to-nearest-even and overflow to `inf`; the previous
+  "cannot be created from Lua tables" error is gone.
+
 ## [0.16.0] — 2026-11-21
 
 ### Added

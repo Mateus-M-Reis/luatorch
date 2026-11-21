@@ -125,11 +125,16 @@ lt_tensor* lt_reciprocal(lt_tensor* a, int inplace);
 lt_tensor* lt_clamp(lt_tensor* a, double lo, double hi, int inplace);
 lt_tensor* lt_fill(lt_tensor* a, double value, int inplace);
 
+/* NaN / Inf predicates */
+lt_tensor* lt_isnan(const lt_tensor* t);
+lt_tensor* lt_isinf(const lt_tensor* t);
+
 /* linalg */
 lt_tensor* lt_matmul(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_mm(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_bmm(lt_tensor* a, lt_tensor* b);
 lt_tensor* lt_dot(lt_tensor* a, lt_tensor* b);
+lt_tensor* lt_einsum(lt_tensor* const* tensors, int64_t n, const char* equation);
 
 /* neural-network primitives */
 lt_tensor* lt_softmax(lt_tensor* a, int64_t dim);

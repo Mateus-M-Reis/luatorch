@@ -58,11 +58,12 @@ concrete: each milestone should leave `scripts/test.sh` green and documented.
 - [ ] More distributions: `poisson`, `geometric`, `cauchy`, tensor-weighted
   `normal`
 - [x] `mv`, `outer`, `addmm`, `baddbmm`
-- [ ] `einsum`, `ger`
+- [x] `einsum`, `ger`
 - [x] `logsumexp`
+- [x] NaN/Inf predicates (`torch.isnan`, `torch.isinf`)
 - [ ] More reductions: `aminmax`, `median`, `quantile`
 - [x] Thread-count control (`torch.set_num_threads`)
-- [ ] `float16` creation from Lua values and printing parity
+- [x] `float16` creation from Lua values and printing parity
 
 ## v0.4 — fused execution (done)
 
