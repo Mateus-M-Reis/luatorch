@@ -1,4 +1,4 @@
-# luatorch API reference (0.11.0)
+# luatorch API reference (0.12.0)
 
 All examples assume:
 
@@ -230,6 +230,7 @@ t:nonzero()                        -- 1-based coordinates, shape (N, ndim)
 t:sort(dim?, descending?)          -- values, 1-based indices
 t:topk(k, dim?, largest?, sorted?) -- values, 1-based indices
 t:unique(sorted?, inverse?, counts?) -- values[, inverse, counts]; inverse is 1-based
+t:median(dim?)                    -- median value or dimension median
 ```
 
 Examples:
@@ -515,10 +516,10 @@ torch.set_default_dtype(dtype)
 torch.get_default_dtype()
 torch.dtype_name(dtype)
 torch.get_num_threads() / torch.set_num_threads(n)
-torch.sort / topk / unique / nonzero / gather / scatter / multinomial
+torch.sort / topk / unique / median / bincount / histc / nonzero / gather / scatter / multinomial
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)
-torch.VERSION             -- luatorch version string ("0.11.0")
+torch.VERSION             -- luatorch version string ("0.12.0")
 torch.version             -- libtorch version string
 ```

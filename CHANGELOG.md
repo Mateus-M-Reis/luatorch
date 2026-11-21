@@ -7,6 +7,20 @@ All notable changes to luatorch are recorded here. The format follows
 
 _No unreleased changes yet._
 
+## [0.12.0] — 2026-11-21
+
+### Added
+
+- `Tensor:median([dim])` for flattened and dimension medians;
+- `torch.bincount(input[, weights[, minlength]])`;
+- `torch.histc(input[, bins[, min[, max]]])`;
+- tests for weighted counts, histogram edges, median shapes, and empty tensors.
+
+### Fixed
+
+- `Tensor:totable()` on an empty tensor now returns an empty table instead of
+  raising on a null data pointer.
+
 ## [0.11.0] — 2026-11-21
 
 ### Added

@@ -801,6 +801,24 @@ function Tensor:sort(dim, descending)
   return wrap(values_pointer[0]), wrap(indices_pointer[0]):add(1)
 end
 
+function Tensor:median(dim)
+  if dim ~= nil then
+    local values = self:sort(dim)
+    local size = values:size(dim)
+    local lower = math.floor((size + 1) / 2)
+    local upper = math.floor((size + 2) / 2)
+    local lower_values = values:narrow(dim, lower, 1)
+    local upper_values = values:narrow(dim, upper, 1)
+    return lower_values:add(upper_values):mul(0.5)
+  end
+  if self:numel() == 0 then error("median of an empty tensor", 2) end
+  local values = self:reshape(-1):sort()
+  local count = values:numel()
+  local lower = math.floor((count + 1) / 2)
+  local upper = math.floor((count + 2) / 2)
+  return (values:get(lower) + values:get(upper)) / 2
+end
+
 function Tensor:topk(k, dim, largest, sorted_flag)
   if largest == nil then largest = true end
   if sorted_flag == nil then sorted_flag = true end
@@ -1333,6 +1351,7 @@ end
 function Tensor:totable()
   local contiguous = self:contiguous()
   local count = contiguous:numel()
+  if count == 0 then return {} end
   local pointer = lib.lt_data_ptr(contiguous.h)
   if pointer == nil then
     error(last_error(), 3)

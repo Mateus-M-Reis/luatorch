@@ -22,7 +22,7 @@ local fun = require("fun")
 
 local torch = {}
 
-torch.VERSION = "0.11.0"
+torch.VERSION = "0.12.0"
 torch.version = libmod.version
 torch.__version = libmod.version
 torch.Tensor = Tensor
@@ -173,11 +173,143 @@ function torch.zeros_like(t, opts)
 end
 
 function torch.ones_like(t, opts)
-  return torch.zeros_like(t, opts):fill_(1)
+  local function vector_values(input, name)
+  if not Tensor.is_tensor(input) then input = torch.tensor(input) end
+  if input:dim() ~= 1 then error(name .. " expects a 1-D tensor", 3) end
+  return input
+end
+
+function torch.bincount(input, weights, minlength)
+  input = vector_values(input, "bincount")
+  local values = input:to(torch.int64):totable()
+  local weight_values
+  if weights ~= nil then
+    weights = vector_values(weights, "bincount weights")
+    if weights:numel() ~= #values then
+      error("bincount weights length mismatch", 3)
+    end
+    weight_values = weights:to(torch.float64):totable()
+  end
+  if minlength ~= nil and (type(minlength) ~= "number" or minlength < 0 or
+      minlength % 1 ~= 0) then
+    error("bincount minlength must be a non-negative integer", 3)
+  end
+  local maximum = -1
+  for _, value in ipairs(values) do
+    if value < 0 then error("bincount input must be non-negative", 3) end
+    if value > maximum then maximum = value end
+  end
+  local length = math.max(maximum + 1, minlength or 0)
+  local counts = {}
+  for i = 1, length do counts[i] = 0 end
+  for i, value in ipairs(values) do
+    counts[value + 1] = counts[value + 1] +
+      (weight_values and weight_values[i] or 1)
+  end
+  return torch.tensor(counts, { dtype = weights and torch.float64 or torch.int64 })
+end
+
+function torch.histc(input, bins, min, max)
+  input = vector_values(input, "histc")
+  bins = bins or 100
+  if type(bins) ~= "number" or bins < 1 or bins % 1 ~= 0 then
+    error("histc bins must be a positive integer", 3)
+  end
+  local values = input:to(torch.float64):totable()
+  if #values == 0 then return torch.zeros(bins, { dtype = torch.int64 }) end
+  min = min or math.min(table.unpack(values))
+  max = max or math.max(table.unpack(values))
+  if min > max then error("histc min must not exceed max", 3) end
+  local counts = {}
+  for i = 1, bins do counts[i] = 0 end
+  if min == max then
+    for _, value in ipairs(values) do
+      if value == min then counts[1] = counts[1] + 1 end
+    end
+  else
+    local width = (max - min) / bins
+    for _, value in ipairs(values) do
+      if value >= min and value <= max then
+        local index = math.floor((value - min) / width) + 1
+        if index > bins then index = bins end
+        counts[index] = counts[index] + 1
+      end
+    end
+  end
+  return torch.tensor(counts, { dtype = torch.int64 })
+end
+
+return torch.zeros_like(t, opts):fill_(1)
 end
 
 function torch.full_like(t, value, opts)
-  return torch.zeros_like(t, opts):fill_(value)
+  local function vector_values(input, name)
+  if not Tensor.is_tensor(input) then input = torch.tensor(input) end
+  if input:dim() ~= 1 then error(name .. " expects a 1-D tensor", 3) end
+  return input
+end
+
+function torch.bincount(input, weights, minlength)
+  input = vector_values(input, "bincount")
+  local values = input:to(torch.int64):totable()
+  local weight_values
+  if weights ~= nil then
+    weights = vector_values(weights, "bincount weights")
+    if weights:numel() ~= #values then
+      error("bincount weights length mismatch", 3)
+    end
+    weight_values = weights:to(torch.float64):totable()
+  end
+  if minlength ~= nil and (type(minlength) ~= "number" or minlength < 0 or
+      minlength % 1 ~= 0) then
+    error("bincount minlength must be a non-negative integer", 3)
+  end
+  local maximum = -1
+  for _, value in ipairs(values) do
+    if value < 0 then error("bincount input must be non-negative", 3) end
+    if value > maximum then maximum = value end
+  end
+  local length = math.max(maximum + 1, minlength or 0)
+  local counts = {}
+  for i = 1, length do counts[i] = 0 end
+  for i, value in ipairs(values) do
+    counts[value + 1] = counts[value + 1] +
+      (weight_values and weight_values[i] or 1)
+  end
+  return torch.tensor(counts, { dtype = weights and torch.float64 or torch.int64 })
+end
+
+function torch.histc(input, bins, min, max)
+  input = vector_values(input, "histc")
+  bins = bins or 100
+  if type(bins) ~= "number" or bins < 1 or bins % 1 ~= 0 then
+    error("histc bins must be a positive integer", 3)
+  end
+  local values = input:to(torch.float64):totable()
+  if #values == 0 then return torch.zeros(bins, { dtype = torch.int64 }) end
+  min = min or math.min(table.unpack(values))
+  max = max or math.max(table.unpack(values))
+  if min > max then error("histc min must not exceed max", 3) end
+  local counts = {}
+  for i = 1, bins do counts[i] = 0 end
+  if min == max then
+    for _, value in ipairs(values) do
+      if value == min then counts[1] = counts[1] + 1 end
+    end
+  else
+    local width = (max - min) / bins
+    for _, value in ipairs(values) do
+      if value >= min and value <= max then
+        local index = math.floor((value - min) / width) + 1
+        if index > bins then index = bins end
+        counts[index] = counts[index] + 1
+      end
+    end
+  end
+  return torch.tensor(counts, { dtype = torch.int64 })
+end
+
+return torch.zeros_like(t, opts):fill_(value)
 end
 
 local function random_like(t, opts, generator)
@@ -645,5 +777,71 @@ setmetatable(torch, {
     return nil
   end,
 })
+
+local function vector_values(input, name)
+  if not Tensor.is_tensor(input) then input = torch.tensor(input) end
+  if input:dim() ~= 1 then error(name .. " expects a 1-D tensor", 3) end
+  return input
+end
+
+function torch.bincount(input, weights, minlength)
+  input = vector_values(input, "bincount")
+  local values = input:to(torch.int64):totable()
+  local weight_values
+  if weights ~= nil then
+    weights = vector_values(weights, "bincount weights")
+    if weights:numel() ~= #values then
+      error("bincount weights length mismatch", 3)
+    end
+    weight_values = weights:to(torch.float64):totable()
+  end
+  if minlength ~= nil and (type(minlength) ~= "number" or minlength < 0 or
+      minlength % 1 ~= 0) then
+    error("bincount minlength must be a non-negative integer", 3)
+  end
+  local maximum = -1
+  for _, value in ipairs(values) do
+    if value < 0 then error("bincount input must be non-negative", 3) end
+    if value > maximum then maximum = value end
+  end
+  local length = math.max(maximum + 1, minlength or 0)
+  local counts = {}
+  for i = 1, length do counts[i] = 0 end
+  for i, value in ipairs(values) do
+    counts[value + 1] = counts[value + 1] +
+      (weight_values and weight_values[i] or 1)
+  end
+  return torch.tensor(counts, { dtype = weights and torch.float64 or torch.int64 })
+end
+
+function torch.histc(input, bins, min, max)
+  input = vector_values(input, "histc")
+  bins = bins or 100
+  if type(bins) ~= "number" or bins < 1 or bins % 1 ~= 0 then
+    error("histc bins must be a positive integer", 3)
+  end
+  local values = input:to(torch.float64):totable()
+  if #values == 0 then return torch.zeros(bins, { dtype = torch.int64 }) end
+  min = min or math.min(table.unpack(values))
+  max = max or math.max(table.unpack(values))
+  if min > max then error("histc min must not exceed max", 3) end
+  local counts = {}
+  for i = 1, bins do counts[i] = 0 end
+  if min == max then
+    for _, value in ipairs(values) do
+      if value == min then counts[1] = counts[1] + 1 end
+    end
+  else
+    local width = (max - min) / bins
+    for _, value in ipairs(values) do
+      if value >= min and value <= max then
+        local index = math.floor((value - min) / width) + 1
+        if index > bins then index = bins end
+        counts[index] = counts[index] + 1
+      end
+    end
+  end
+  return torch.tensor(counts, { dtype = torch.int64 })
+end
 
 return torch
