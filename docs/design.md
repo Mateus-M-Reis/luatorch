@@ -119,12 +119,12 @@ ATen is 0-based; the Lua API is 1-based. Conversions live exclusively in
   boundary. Index `0` becomes `-1` and fails loudly, which catches off-by-one
   mistakes early.
 - `nonzero` returns an `(N, ndim)` int64 tensor of 1-based coordinates.
-- Multi-output linear algebra (`svd`, `qr`) and selection (`sort`, `topk`,
-  `unique`) use C out-parameters: the shim writes `lt_tensor*` handles and Lua
-  wraps them with finalizers. This avoids tuple/FFI ABI tricks.
+- Multi-output linear algebra (`svd`, `qr`, `lstsq`) and selection (`sort`,
+  `topk`, `unique`) use C out-parameters: the shim writes `lt_tensor*` handles
+  and Lua wraps them with finalizers. This avoids tuple/FFI ABI tricks.
 - Linear algebra delegates to ATen/LAPACK (`linalg_inv`, `linalg_det`,
-  `linalg_slogdet`, `linalg_solve`, `linalg_cholesky`, `linalg_svd`,
-  `linalg_qr`), so dtypes and errors match PyTorch.
+  `linalg_slogdet`, `linalg_lstsq`, `linalg_solve`, `linalg_cholesky`,
+  `linalg_svd`, `linalg_qr`), so dtypes and errors match PyTorch.
 - `multinomial` samples 1-based categories for the same reason as `argmax`;
   uniform/normal/exponential/bernoulli updates are in-place and run through
   ATen's RNG.

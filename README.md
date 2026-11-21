@@ -129,6 +129,19 @@ print(sign:item(), logabsdet:item())   -- 1, 1.6094379425049
 logabsdet:backward()                   -- gradient d log|det A| / dA = A^-T
 ```
 
+`torch.linalg.lstsq` solves dense least-squares problems and returns the
+solution, residual sum of squares, numerical rank, and singular values:
+
+```lua
+local a = torch.tensor({{1, 0}, {0, 1}, {1, 1}}, {dtype = torch.float64})
+local b = torch.tensor({1, 2, 3}, {dtype = torch.float64})
+local x, residuals, rank = a:lstsq(b, {driver = "gelsd"})
+print(x:totable(), rank:item())   -- {1, 2}, 2
+```
+
+See [docs/api.md](docs/api.md) for driver and `rcond` semantics; the solution
+is differentiable.
+
 ## Profiling
 
 `torch.profiler` optionally records per-tensor-method call counts and CPU time,
@@ -269,7 +282,7 @@ LuaJIT backend; `gcc` unavailable → automatic fallback.
 | Dtypes | float32/64/16, int8/16/32/64, uint8, bool; Torch7 typed constructors |
 | Math | `+ - * / ^ %`, broadcasting, ~25 unary ops, `matmul/mm/bmm/dot`, `mv`, `outer`, `addmm`, `baddbmm`, comparisons, `where`, masks |
 | Sorting | `sort`, `topk`, `unique`, `nonzero`, `gather`, `scatter` |
-| Linear algebra | `inverse`, `det`, `solve`, `cholesky`, `svd`, `qr`, `torch.linalg.*` |
+| Linear algebra | `inverse`, `det`, `solve`, `lstsq`, `cholesky`, `svd`, `qr`, `torch.linalg.*` |
 | Autograd | `requires_grad`, `backward`, `grad`, `detach`, `no_grad` |
 | Neural nets | Linear, Conv2d, pooling, BatchNorm/LayerNorm, Embedding, Dropout, activations, losses, Sequential/ModuleList |
 | Optimizers | SGD/Adam/AdamW/RMSprop/Adagrad fused update kernels, fused gradient clipping, LR schedulers |

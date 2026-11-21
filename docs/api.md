@@ -321,13 +321,14 @@ a:inverse()
 a:det()
 a:slogdet()         -- returns sign, logabsdet; batched and differentiable
 a:solve(b)          -- solve a x = b (b may be a vector or matrix)
+a:lstsq(b, opts?)   -- least squares; returns x, residuals, rank, singular values
 a:cholesky(upper?)  -- A = L L^T (or U^T U)
 a:svd(full_matrices?)  -- returns U, S, Vh
 a:qr(mode?)            -- returns Q, R; mode defaults to "reduced"
 
 torch.linalg.inv(a)      torch.linalg.det(a)      torch.linalg.slogdet(a)
 torch.linalg.solve(a, b) torch.linalg.cholesky(a) torch.linalg.svd(a)
-torch.linalg.qr(a)       -- aliases
+torch.linalg.qr(a)       torch.linalg.lstsq(a, b, opts?)  -- aliases
 ```
 
 `slogdet` computes the signed log-determinant without forming the determinant,
@@ -335,6 +336,28 @@ so it stays finite for very large or small magnitudes. `sign` is `-1`, `0`, or
 `1`; `logabsdet` is real. For a square matrix `exp(logabsdet) * sign == det`,
 and gradients flow through `logabsdet` as `A^{-T}`. Batched inputs return
 `sign` and `logabsdet` with the batch dimensions; square matrices are required.
+
+`lstsq` minimizes `||A x - b||` and returns four values: `solution`,
+`residuals`, `rank`, and `singular_values`. For a matrix `A` of shape
+`(*, m, n)`, `b` may be `(*, m)` (a vector of right-hand sides) or
+`(*, m, k)`; the solution is then `(*, n)` or `(*, n, k)`. `residuals` holds
+the per-column sum of squared residuals (`(*, k)`), `rank` is an int64 tensor
+of shape `(*)`, and `singular_values` has shape `(*, min(m, n))`; the last
+three are empty when the chosen driver does not compute them. Options:
+
+```lua
+local x, residuals, rank, singular = a:lstsq(b, {
+  driver = "gelsd",   -- "gels", "gelsy" (ATen CPU default), "gelsd", "gelss"
+  rcond = 1e-10,      -- singular values below rcond * largest are treated as 0
+})
+```
+
+`"gels"` assumes full rank and returns empty `rank`/`singular_values`;
+`"gelsy"` returns empty `singular_values` and empty residuals. Residuals are
+also empty for underdetermined or rank-deficient systems. `rcond` must be
+non-negative when supplied; it is honored by `gelsy`, `gelsd`, and `gelss`,
+and `rcond = 0` uses machine precision. The solution is differentiable. CPU
+LAPACK only accepts float32 and float64, so cast float16 inputs first.
 
 ### Einstein summation
 
@@ -520,9 +543,9 @@ Gradients keep the tensor dtype: a `float16` graph produces `float16`
 gradients, and casts promote the gradient back to the source dtype. `float16`
 autograd covers elementwise math, reductions, matmul and einsum, `nn.Linear`,
 the losses, softmax/log-softmax, and `where`/masked updates. CPU LAPACK
-operations (`inverse`, `det`, `slogdet`, `svd`, `cholesky`, `qr`) reject
-`float16` through ATen, and the custom optimizer kernels require float32 or
-float64 parameters; cast to float32 for those paths.
+operations (`inverse`, `det`, `slogdet`, `svd`, `cholesky`, `qr`, `lstsq`)
+reject `float16` through ATen, and the custom optimizer kernels require
+float32 or float64 parameters; cast to float32 for those paths.
 
 `torch.einsum` is differentiable for every equation form -- implicit outputs,
 diagonals and traces, ellipses/batches, and scalar operands -- matching ATen's
@@ -624,6 +647,7 @@ torch.linalg.cond(a, p?)         -- 2, 1, inf, fro
 torch.linalg.matrix_rank(a, tol?)
 torch.linalg.vector_norm(a, ord?, dim?, keepdim?)
 torch.linalg.slogdet(a)          -- returns sign, logabsdet
+torch.linalg.lstsq(a, b, opts?)  -- returns x, residuals, rank, singular values
 torch.mv / outer / addmm / baddbmm
 torch.ALL_DIMS            -- -1000 sentinel (internal, exposed for clarity)
 torch.profiler            -- opt-in tensor-method profiler (see docs/profiler.md)

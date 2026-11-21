@@ -5,7 +5,20 @@ All notable changes to luatorch are recorded here. The format follows
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Added
+
+- `torch.linalg.lstsq` / `Tensor:lstsq(b, opts?)`, returning solution,
+  residuals, rank, and singular values from `at::linalg_lstsq`; supports the
+  `gels`, `gelsy`, `gelsd`, and `gelss` drivers, `rcond` rank truncation,
+  batched and multiple right-hand sides, and autograd through the solution;
+- six `lstsq` tests covering the normal equations, driver outputs, batched and
+  underdetermined systems, `rcond` truncation, gradients, and error paths;
+- benchmark entries for `lstsq` forward and forward+backward.
+
+### Changed
+
+- docs describe `lstsq` option, shape, dtype, and driver behavior; the API
+  documentation test guards the new `torch.linalg.lstsq` alias.
 
 ## [0.19.0] — 2026-11-21
 
