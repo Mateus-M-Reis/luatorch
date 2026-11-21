@@ -323,6 +323,69 @@ test("DataLoader propagates worker errors and closes the epoch", function()
   assert_eq(first_error(), nil)
 end)
 
+test("DataLoader defers main-thread prefetch errors to their batch", function()
+  local Dataset = data.Dataset
+  local Failing = setmetatable({}, { __index = Dataset })
+  Failing.__index = Failing
+
+  function Failing.new(failing_index)
+    local self = setmetatable(Dataset.new(), Failing)
+    self.failing_index = failing_index
+    return self
+  end
+
+  function Failing:size()
+    return 6
+  end
+
+  function Failing:get(index)
+    if index == self.failing_index then
+      error("main-thread boom", 0)
+    end
+    return torch.tensor(index)
+  end
+
+  -- A prefetch error on batch 2 must not discard the already prepared batch 1.
+  local loader = data.DataLoader(Failing.new(2),
+    { batch_size = 1, num_workers = 0, prefetch = 3 })
+  local iterator = loader:iter()
+  assert_eq(iterator():get(1), 1)
+
+  local ok, err = pcall(iterator)
+  assert_false(ok)
+  assert_true(tostring(err):find("failed while preparing batch 2", 1, true) ~= nil,
+    "main-thread error lacked the batch number")
+  assert_true(tostring(err):find("main-thread boom", 1, true) ~= nil,
+    "main-thread error was not preserved")
+  assert_eq(iterator(), nil)
+  assert_eq(next(loader._iterators), nil)
+end)
+
+test("DataLoader shuffles empty datasets without crashing", function()
+  local dataset = data.TensorDataset(torch.zeros(0, 2))
+  local configs = {
+    { batch_size = 4, shuffle = true },
+    { batch_size = 4, shuffle = true, drop_last = true },
+    { batch_size = 4, shuffle = true, seed = 11 },
+    { batch_size = 4, shuffle = true, num_workers = 3, prefetch = 3 },
+  }
+
+  for _, options in ipairs(configs) do
+    local loader = data.DataLoader(dataset, options)
+    assert_eq(loader:num_batches(), 0)
+    local iterator = loader:iter()
+    local batches = 0
+    for _ in iterator do
+      batches = batches + 1
+    end
+    assert_eq(batches, 0)
+    assert_eq(iterator(), nil)
+    assert_eq(iterator(), nil)
+    assert_eq(next(loader._iterators), nil)
+    loader:close()
+  end
+end)
+
 test("DataLoader validates arguments", function()
   assert_error(function()
     data.DataLoader({}, {})

@@ -220,8 +220,18 @@ function Iterator:_fill()
     local seq = self.produce_seq
 
     if self.num_workers == 0 then
-      self.ready[seq] = make_batch(
-        self.dataset, seq, self.batch_size, self.total, self.order)
+      local ok, result = pcall(
+        make_batch, self.dataset, seq, self.batch_size, self.total, self.order)
+      if not ok then
+        local message = string.format(
+          "DataLoader: failed while preparing batch %d: %s",
+          seq, tostring(result))
+        self.errors[seq] = message
+        self.first_error = self.first_error or seq
+        self.produce_seq = seq + 1
+        break
+      end
+      self.ready[seq] = result
       self.produce_seq = seq + 1
     else
       local worker_id = (seq - 1) % self.num_workers + 1
@@ -409,7 +419,7 @@ function DataLoader:iter()
     math.ceil(total / self.batch_size)
 
   local order = nil
-  if self.shuffle then
+  if self.shuffle and total > 0 then
     if self.seed ~= nil then
       order = seeded_order(total, self.seed)
     else
